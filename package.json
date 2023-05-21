@@ -1,0 +1,60 @@
+{
+  "name": "@bbi-lab/docorm",
+  "version": "0.0.1-alpha",
+  "description": "Persistence layer with ORM features for JSON documents",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bbi-lab/docorm.git"
+  },
+  "keywords": [
+    "DAO",
+    "JSON",
+    "ORM",
+    "persistence",
+    "PostgreSQL",
+    "semistructured"
+  ],
+  "author": {
+    "name": "Jeremy Stone",
+    "email": "stoneje@msn.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/bbi-lab/docorm#readme",
+  "bugs": {
+    "url": "https://github.com/bbi-lab/docorm/issues"
+  },
+  "engines": {
+    "node": ">= 14.0.0"
+  },
+  "dependencies": {
+    "async-mutex": "^0.3.1",
+    "cls-hooked": "^4.2.2",
+    "json-pointer": "^0.6.2",
+    "jsonpath-plus": "^7.2.0",
+    "lodash": "^4.17.21",
+    "pg": "^8.10.0",
+    "pg-promise": "^11.4.3",
+    "pg-query-stream": "^4.2.1",
+    "uuid": "^9.0.0",
+    "winston": "^3.8.2"
+  },
+  "devDependencies": {
+    "@types/cls-hooked": "^4.3.3",
+    "@types/json-pointer": "^1.0.31",
+    "@types/jsonpath-plus": "^5.0.2",
+    "@types/lodash": "^4.14.194",
+    "@types/node": "^20.2.1",
+    "@types/pg": "^8.6.6",
+    "@types/uuid": "^9.0.1",
+    "eslint": "^8.0.1",
+    "eslint-config-google": "^0.14.0",
+    "eslint-plugin-import": "^2.25.2",
+    "jsdoc": "^3.6.7",
+    "typescript": "^4.9.4"
+  }
+}

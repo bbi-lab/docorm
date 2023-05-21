@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Derived files
+/dist/
+/docs/
+
+# Miscellaneous
+.java-version

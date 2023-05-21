@@ -1,0 +1,913 @@
+/**
+ * Data Access Objects for PostgreSQL
+ *
+ * @module lib/db/postgresql/dao
+ */
+
+import jsonPointer from 'json-pointer'
+import {JSONPath as jsonPath} from 'jsonpath-plus'
+import _ from 'lodash'
+import {Readable, Transform} from 'stream'
+import {v4 as uuidv4} from 'uuid'
+
+import {Collection, Entity, EntityType, getEntityType} from './entity-types.js'
+import {PersistenceError} from './errors.js'
+import {Client} from './postgresql/db.js'
+import makeRawDao, {FetchResults, fetchResultsIsStream} from './postgresql/raw-dao.js'
+import {
+  ConcreteEntitySchema,
+  findPropertyInSchema,
+  findRelatedItemsInSchema,
+  listTransientPropertiesOfSchema,
+  makeSchemaConcrete
+} from './schemas.js'
+
+export type Dao = any
+
+function hasKey<O extends object>(obj: O, key: PropertyKey): key is keyof O {
+  return key in obj
+}
+
+type PathTransformer = (path: string) => {path: string, additionalOptions?: {[key: string]: any}}
+
+function mapPaths<T>(x: T, transformPath: PathTransformer): T {
+  if (x == null) {
+    return x
+  }
+  if (_.isArray(x)) {
+    return x.map((element) => mapPaths(element, transformPath)) as T
+  }
+  if (!_.isObject(x)) {
+    return x
+  }
+  const mappedObject: {[key: string]: any} = {}
+  for (const key in x) {
+    //if (Object.prototype.hasOwnProperty.call(object, key)) {
+    if (hasKey(x, key)) {
+      const value = x[key]
+      if (key == 'path' && _.isString(value)) {
+        const {path, additionalOptions} = transformPath(value)
+        mappedObject[key] = path
+        if (additionalOptions) {
+          _.assign(mappedObject, additionalOptions)
+        }
+      } else {
+        mappedObject[key] = mapPaths(value, transformPath)
+      }
+    }
+  }
+  return mappedObject as typeof x
+}
+
+const makePathTransformer = (schema: ConcreteEntitySchema, isDraft = false) => (path: string) => {
+  const result: ReturnType<PathTransformer> = {
+    path: (path == '_id' || !isDraft) ? path : `draft.${path}`
+  }
+  const propertySchema = findPropertyInSchema(schema, path)
+  if (propertySchema) {
+    const propertySchemaType = (propertySchema as any).type
+    switch (propertySchemaType) {
+      case 'boolean':
+        result.additionalOptions = {sqlType: 'boolean'}
+        break
+        // TODO Handle other JSON -> SQL type conversions? Only numbers may be needed. (What about dates?)
+        /*
+        case 'number':
+        result.additionalOptions = {sqlType: 'real'}
+        break
+        */
+      default:
+        break
+    }
+  }
+  return result
+}
+
+interface DaoOptionsInput {
+  /**
+   * An array of ancestor collections, with the immediate parent collection last. When managing items that do not
+   * belong to a parent collection, this is empty.
+   */
+  parentCollections?: Collection[],
+  /** An array of DAOs for the ancestor objects. This should have the same length as parentCollections. */
+  parentDaos?: Dao[],
+  /** The draft batch ID, if any. */
+  draftBatchId?: string
+}
+
+interface DaoOptions {
+  /**
+   * An array of ancestor collections, with the immediate parent collection last. When managing items that do not
+   * belong to a parent collection, this is empty.
+   */
+  parentCollections: Collection[],
+  /** An array of DAOs for the ancestor objects. This should have the same length as parentCollections. */
+  parentDaos: Dao[],
+  /** The draft batch ID, if any. */
+  draftBatchId?: string
+}
+
+const DAO_DEFAULT_OPTIONS: DaoOptions = {
+  parentCollections: [],
+  parentDaos: []
+}
+
+interface CountOptions {
+  client?: Client
+}
+
+interface FetchOptionsInput {
+  client?: Client,
+  order?: QueryOrder,
+  offset?: number,
+  limit?: number,
+  propertyBlacklist?: string[],
+  stream?: boolean
+}
+
+interface FetchOptions extends FetchOptionsInput {
+  stream: boolean
+}
+
+const FETCH_DEFAULT_OPTIONS: FetchOptions = {
+  stream: false
+}
+
+interface FetchReferenceItemsOptionsInput {
+  client?: Client
+  relatedItemDefinitions?: any
+  entityTypes?: {[entityTypeName: string]: EntityType}
+  daos?: {[entityTypeName: string]: Dao}
+  knownItems?: {[entityTypeName: string]: {[id: Id]: Entity}}
+}
+
+interface FetchReferenceItemsOptions extends FetchReferenceItemsOptionsInput {
+  client?: Client
+  relatedItemDefinitions: any
+  entityTypes: {[entityTypeName: string]: EntityType}
+  daos: {[entityTypeName: string]: Dao}
+  knownItems: {[entityTypeName: string]: {[id: Id]: Entity}}
+}
+
+const DEFAULT_FETCH_REFERENCE_ITEMS_OPTIONS: FetchReferenceItemsOptions = {
+  relatedItemDefinitions: null,
+  entityTypes: {},
+  daos: {},
+  knownItems: {}
+}
+
+/**
+ * Create a Data Access Object (DAO).
+ *
+ * The new DAO's behavior is determined by several parameters:
+ * - The entity type defines the storage table, schema, and validation behaviors.
+ * - parentCollections is an array of ancestor collections. TODO Document the collection data type. If present, then
+ *   this DAO will not read and write items using a database table but will fetch them from a parent item's collection
+ *   and, on insert or update, will save the parent item.
+ * - If draftBatchId is non-null, then items are written to the drafts table instead of the appropriate item storage
+ *   table.
+ *
+ * @param entityType - The entity type of the items that this DAO will manage.
+ * @param options - Options for this DAO.
+ * @return {Object} A new DAO.
+ */
+const makeDao = async function(entityType: EntityType, options: DaoOptionsInput = DAO_DEFAULT_OPTIONS): Promise<Dao> {
+  const {parentCollections, parentDaos, draftBatchId} = _.merge({}, DAO_DEFAULT_OPTIONS, options) as DaoOptions
+
+  const schema = entityType.schema
+  const concreteSchema = makeSchemaConcrete(schema)
+
+  const transientPropertyPaths = listTransientPropertiesOfSchema(schema)
+  const dbCallbacks = entityType.dbCallbacks || {}
+
+  const draftEntityType = await getEntityType('draft')
+  const rawDao = makeRawDao(draftBatchId ? draftEntityType : entityType)
+
+  const mayTrackChanges = entityType.name != 'item-version'
+  const itemVersionEntityType = mayTrackChanges ? await getEntityType('item-version') : null
+  const itemVersionsDao = itemVersionEntityType ? await makeDao(itemVersionEntityType) : null
+
+  async function recordItemVersion(itemVersion: Entity, client = null) {
+    if (itemVersionsDao && itemVersion._id) {
+      await itemVersionsDao.insert({item: itemVersion}, [], {client})
+    }
+  }
+
+  function wrapDraft(item: Entity) {
+    return {
+      _id: item._id,
+      draftBatchId,
+      _type: draftEntityType.name,
+      draft: _.assign(_.omit(item, '_id'), {_type: entityType.name})
+    }
+  }
+
+  function unwrapDraft(draft: Entity) {
+    return _.merge({}, draft.draft, {_id: draft._id, _type: draft._draftType})
+  }
+
+  return {
+    entityType: entityType,
+    schema: schema,
+    concreteSchema: concreteSchema,
+    draftBatchId,
+
+    /**
+     * Prepare an item for saving by removing any transient properties.
+     *
+     * Transient properties are catalogued at DAO creation by calling
+     * {@link module:lib/schemas.listTransientPropertiesOfSchema listTransientPropertiesOfSchema}.
+     *
+     * @param {Object} item - The item to sanitize.
+     * @return {Object} A deep clone of the item, with transient properties recursively removed; or the item itself, if
+     *   there are no transient properties.
+     */
+    sanitizeItem: function(item: Entity) {
+      let sanitizedItem = item
+      if (transientPropertyPaths.length > 0) {
+        sanitizedItem = _.cloneDeep(item)
+        for (const path of transientPropertyPaths) {
+          _.unset(sanitizedItem, path)
+        }
+      }
+      return sanitizedItem
+    },
+
+    count: async function(
+        query?: QueryClause,
+        parentIds: string[] = [],
+        options: CountOptions = {}
+    ) {
+      const {client} = options
+      if (parentCollections.length > 0 && parentDaos.length > 0 && parentIds.length > 0) {
+        const items = this.fetch(query, parentIds, {client})
+        return items.length
+      } else {
+        if (query != undefined && query !== false) {
+          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+        }
+        if (query != undefined && query !== false) {
+          if (draftBatchId) {
+            // query = query || {}
+            // query = mapPaths(query, (path) => (path == '_id' ? path : `draft.${path}`))
+            // query = _.mapKeys(query, (value, path) => (path == '_id') ? path : `draft.${path}`)
+            const draftClauses = [
+              {l: {path: 'draft._type'}, r: {constant: entityType.name}},
+              {l: {path: 'draftBatchId'}, r: {constant: draftBatchId}}
+            ]
+            if (queryClauseIsAnd(query)) {
+              query = {
+                and: [...draftClauses, ...query.and]
+              }
+            } else {
+              query = {and: [...draftClauses, ...(query ? [query] : [])]}
+            }
+          }
+        }
+
+        return await rawDao.count(query, {client})
+      }
+    },
+
+    fetch: async function(
+        query?: QueryClause,
+        parentIds: string[] = [],
+        options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS
+    ) {
+      let {client, order, offset, limit, propertyBlacklist, stream} = _.merge({}, FETCH_DEFAULT_OPTIONS, options) as
+          FetchOptions
+
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        let results: Entity[] = []
+        switch (collection.persistence) {
+          case 'id-list': {
+            // TODO Optimize by fetching only the path we need from the parent. Do the same in other fetch methods.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              results = [] // TODO Or error?
+            } else {
+              const collectionMemberIds = _.get(parent, collection.subpath) || []
+              const collectionMembers = await rawDao.fetchById(collectionMemberIds, {client, propertyBlacklist})
+              results = collectionMembers.filter((x) =>
+                // TODO Implement collection filtering by query
+                false
+              )
+              // TODO Apply order
+              // TODO Apply limit
+            }
+          }
+            break
+          case 'subdocument': {
+            const parent = await _.last(parentDaos)
+                .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
+            if (!parent) {
+              results = [] // TODO Or error?
+            } else {
+              // TODO Implement collection filtering by query
+              results = (_.get(parent, collection.subpath) || []).filter(() => false)
+              // TODO Apply order
+              // TODO Apply limit
+            }
+          }
+            break
+        }
+        return stream ? Readable.from(results) : results
+      } else {
+        if (query !== undefined && query !== false) {
+          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+        }
+        if (query !== undefined && query !== false) {
+          if (draftBatchId) {
+            // query = query || {}
+            // query = mapPaths(query, (path) => (path == '_id' ? path : `draft.${path}`))
+            // query = _.mapKeys(query, (value, path) => (path == '_id') ? path : `draft.${path}`)
+            const draftClauses = [
+              {l: {path: 'draft._type'}, r: {constant: entityType.name}},
+              {l: {path: 'draftBatchId'}, r: {constant: draftBatchId}}
+            ]
+            if (queryClauseIsAnd(query)) {
+              query = {
+                and: [...draftClauses, ...query.and]
+              }
+            } else {
+              query = {and: [...draftClauses, ...(query ? [query] : [])]}
+            }
+          }
+        }
+
+        if (order != null) {
+          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          if (draftBatchId) {
+            // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
+            /* order = _.map(order, orderElement => {
+              let path = _.isArray(orderElement) ? orderElement[0] : orderElement
+              if (path != '_id') {
+                path = `draft.${path}`
+              }
+              return _.isArray(orderElement) ? [path, ...orderElement.slice(1)] : path
+            })*/
+          }
+        }
+
+        const itemsOrStreamQuery = await rawDao.fetch(query, {client, order, offset, limit, propertyBlacklist, stream})
+        if (draftBatchId) {
+          if (fetchResultsIsStream(itemsOrStreamQuery)) {
+            const unwrapDrafts = new Transform({
+              objectMode: true,
+              transform: (item, _, callback) => callback(null, unwrapDraft(item))
+            })
+            return {run: itemsOrStreamQuery.run, stream: itemsOrStreamQuery.stream.pipe(unwrapDrafts)}
+            // return itemsOrStreamQuery.pipe(unwrapDrafts)
+          } else {
+            return itemsOrStreamQuery.map((item) => unwrapDraft(item))
+          }
+        } else {
+          return itemsOrStreamQuery
+        }
+      }
+    },
+
+    // TODO rawDao.fetchWithSql currently does not support the 'stream' option.
+    fetchWithSql: async function(
+        whereClauseSql: string | null = null,
+        whereClauseParameters = [],
+        options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS
+    ) {
+      let {client, order, offset, limit, propertyBlacklist, stream} = _.merge({}, FETCH_DEFAULT_OPTIONS, options) as
+          FetchOptions
+      return await rawDao.fetchWithSql(
+        whereClauseSql,
+        whereClauseParameters,
+        {client, order, offset, limit, propertyBlacklist, stream}
+      )
+    },
+
+    fetchAll: async function(
+        parentIds: string[] = [],
+        options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS
+    ) {
+      let {client, order, offset, limit, propertyBlacklist, stream} = _.merge({}, FETCH_DEFAULT_OPTIONS, options) as
+          FetchOptions
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              const collectionMemberIds = _.get(parent, collection.subpath) || []
+              return await rawDao.fetchById(collectionMemberIds, {
+                client,
+                limit,
+                propertyBlacklist,
+                order
+              })
+            }
+          }
+          case 'subdocument': {
+            const parent = await _.last(parentDaos)
+                .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              const collectionMembers = _.get(parent, collection.name) || []
+              // TODO Apply order
+              return limit ? collectionMembers.slice(0, limit) : collectionMembers
+            }
+          }
+        }
+      } else {
+        let query: QueryClause | undefined
+        if (draftBatchId) {
+          query = {
+            and: [
+              {l: {path: 'draft._type'}, r: {constant: entityType.name}},
+              {l: {path: 'draftBatchId'}, r: {constant: draftBatchId}}
+            ]
+          }
+        }
+
+        if (order != null) {
+          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          if (draftBatchId) {
+            // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
+            /* order = _.map(order, orderElement => {
+              let path = _.isArray(orderElement) ? orderElement[0] : orderElement
+              if (path != '_id') {
+                path = `draft.${path}`
+              }
+              return _.isArray(orderElement) ? [path, ...orderElement.slice(1)] : path
+            })*/
+          }
+        }
+
+        const itemsOrStreamQuery = query ?
+            await rawDao.fetch(query, {client, order, offset, limit, propertyBlacklist, stream})
+            : await rawDao.fetchAll({client, order, offset, limit, propertyBlacklist, stream})
+        if (draftBatchId) {
+          if (fetchResultsIsStream(itemsOrStreamQuery)) {
+            const unwrapDrafts = new Transform({
+              objectMode: true,
+              transform: (item, _, callback) => callback(null, unwrapDraft(item))
+            })
+            return {run: itemsOrStreamQuery.run, stream: itemsOrStreamQuery.stream.pipe(unwrapDrafts)}
+            // return itemsOrStreamQuery.pipe(unwrapDrafts)
+          } else {
+            return itemsOrStreamQuery.map((item) => unwrapDraft(item))
+          }
+        } else {
+          return itemsOrStreamQuery
+        }
+        /*
+        const fetchResult = query ?
+            await rawDao.fetch(query, {client, order, offset, limit})
+            : await rawDao.fetchAll({client, order, offset, limit})
+        return draftBatchId ? fetchResult.map((item) => unwrapDraft(item)) : fetchResult
+        */
+      }
+    },
+
+    fetchByIds: async function(
+        ids: Id[],
+        parentIds: Id[] = [],
+        {client = null, returnMatchingList = true, propertyBlacklist = []} = {}
+    ) {
+      let items: Entity[] = []
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list':
+            // TODO
+            return null
+          case 'subdocument': {
+            // TODO Revisit
+            const parent = await _.last(parentDaos)
+                .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
+            if (!parent) {
+              items = [] // TODO Or error?
+            } else {
+              items = (_.get(parent, collection.name) || []).find((x: any) => x?._id && ids.includes(x._id))
+            }
+          }
+        }
+      } else {
+        // TODO Support stream-baseed fetching.
+        const fetchResult = (ids.length > 0) ?
+            await rawDao.fetch({l: {path: '_id'}, r: {constant: ids}, operator: 'in'}, {client, propertyBlacklist}) as FetchResults : []
+        items = draftBatchId ? fetchResult.map((item: Entity) => unwrapDraft(item)) : fetchResult
+      }
+      if (returnMatchingList) {
+        return ids.map((id) => items.find((item) => item._id == id))
+      } else {
+        return items
+      }
+    },
+
+    // TODO Support fetching one subcollection member by ID
+    fetchOneById: async function(id: Id, parentIds = [], {client = null, propertyBlacklist = []} = {}) {
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list':
+            // TODO
+            return null
+          case 'subdocument': {
+            // TODO Revisit
+            const parent = await _.last(parentDaos)
+                .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              return (_.get(parent, collection.name) || []).find((x: any) => x?._id == id)
+            }
+          }
+        }
+      } else {
+        const fetchResult = await rawDao.fetchOneById(id, {client, propertyBlacklist})
+        // TODO for drafts:          if (fetchResult && ((_.get(fetchResult,
+        // 'draft._type') != entityType.name) || (fetchResult.draftBatchId != draftBatchId))) {
+        // fetchResult = null
+        //  }
+
+        return draftBatchId ? unwrapDraft(fetchResult) : fetchResult
+      }
+    },
+
+    // TODO Either drop the entityType parameter and use the DAO's entity type, or move this out of the DAO.
+    // TODO Fetch nested references: a -> b -> c. After fetching all of a's references, collect the newly added items,
+    // and fetch references for each of them (preferably together instead of sequentially).
+    fetchReferencedItems: async function(items: Entity[], entityType: EntityType, pathsToExpand?: string[], options: FetchReferenceItemsOptions = DEFAULT_FETCH_REFERENCE_ITEMS_OPTIONS) {
+      let {
+        client,
+        relatedItemDefinitions,
+        entityTypes,
+        daos,
+        knownItems
+      } = _.merge(options, DEFAULT_FETCH_REFERENCE_ITEMS_OPTIONS)
+    
+      if (_.isArray(pathsToExpand) && pathsToExpand.length == 0) {
+        return
+      }
+
+      // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
+      // more than once.
+      if (knownItems == null) {
+        knownItems = {
+          [entityType.name]: {}
+        }
+      }
+      for (const item of items) {
+        if (item._id) {
+          knownItems[entityType.name][item._id] = item
+        }
+      }
+
+      // Get all related item definitions in the current item's entity type.
+      if (relatedItemDefinitions == null) {
+        relatedItemDefinitions = findRelatedItemsInSchema(entityType.schema, ['ref'])
+      }
+
+      // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).
+      if (pathsToExpand) {
+        pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
+      }
+      const pointersToExpand = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
+        jsonPath({path, json: items, resultType: 'pointer'})
+      ).flat()) : null
+
+      // Get all related item references in the current item.
+      // Expand any references that can be satisfied with items already loaded, and collect a list of the rest.
+      const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
+      for (const relatedItemDefinition of relatedItemDefinitions) {
+        const pathInItemsArray = relatedItemDefinition.path.replace(/^\$/, '$[*]')
+        let referencePointers = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'})
+        if (pointersToExpand) {
+          referencePointers = _.intersection(referencePointers, pointersToExpand)
+        }
+        for (const referencePointer of referencePointers) {
+          const reference = jsonPointer.get(items, referencePointer)
+          if (reference && reference.$ref) {
+            const knownItem = _.get(knownItems, [relatedItemDefinition.entityTypeName, reference.$ref])
+            if (knownItem) {
+              // TODO Ensure that _.set works with all simple JSONPaths returned by JSONPath({resultType: 'path'}).
+              // Alternatively, use JSON pointers instead.
+              _.set(items, referencePointer, knownItem)
+            } else {
+              itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName] =
+                  itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName] || []
+              itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName].push({
+                pointer: referencePointer,
+                id: reference.$ref
+              })
+            }
+          }
+        }
+      }
+
+      for (const referencedItemEntityTypeName of _.keys(itemReferencesByEntityTypeName)) {
+        const itemReferences = itemReferencesByEntityTypeName[referencedItemEntityTypeName]
+        let referencedItemEntityType = entityTypes[referencedItemEntityTypeName]
+        let referencedItemDao = daos[referencedItemEntityTypeName]
+        if (!referencedItemEntityType) {
+          referencedItemEntityType = await getEntityType(referencedItemEntityTypeName)
+          entityTypes[referencedItemEntityTypeName] = referencedItemEntityType
+        }
+        if (!referencedItemEntityType) {
+          throw new PersistenceError(
+            'Unknown entity type when attempting to fetch referenced items.',
+            {entityTypeName: referencedItemEntityTypeName}
+          )
+        }
+        if (!referencedItemDao) {
+          referencedItemDao = await makeDao(referencedItemEntityType)
+          daos[referencedItemEntityTypeName] = referencedItemDao
+        }
+        const referencedItems = _.keyBy(
+          await referencedItemDao.fetchByIds(itemReferences.map((ref) => ref.id), {client}),
+          '_id'
+        )
+        knownItems[referencedItemEntityTypeName] = knownItems[referencedItemEntityTypeName] || {}
+        _.assign(knownItems[referencedItemEntityTypeName], referencedItems)
+        for (const reference of itemReferences) {
+          const referencedItem = referencedItems[reference.id]
+          if (referencedItem) {
+            // console.log('EXPANDING REFERENCE')
+            // console.log(reference.pointer)
+            // console.log(referencedItem)
+            jsonPointer.set(items, reference.pointer, referencedItem)
+          } else {
+            // TODO Warn about data inconsistency: a referenced item was missing.
+          }
+        }
+      }
+    },
+
+    insert: async function(item: Entity, parentIds = [], {client = null} = {}) {
+      item = this.sanitizeItem(item)
+      if (!item._id) {
+        item._id = uuidv4()
+      }
+      for (const callback of dbCallbacks.beforeInsert || []) {
+        await callback(item, {draftBatchId})
+      }
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              const wrappedItem = draftBatchId ? wrapDraft(item) : item
+              const insertResult = await rawDao.insert(wrappedItem, {client})
+              item = draftBatchId ? unwrapDraft(insertResult) : insertResult
+
+              if (item && item._id) {
+                _.set(
+                  parent,
+                  collection.subpath,
+                  [...(_.get(parent, collection.subpath) || []), item._id]
+                )
+                await _.last(parentDaos).update(parent, parentIds.slice(0, -1))
+              }
+            }
+            break
+          }
+          case 'subdocument': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              const existingItem = (_.get(parent, collection.subpath) || []).find((x: any) =>
+                x?._id == item._id
+              )
+              if (existingItem) {
+                return null // TODO Error
+              } else {
+                _.set(
+                  parent,
+                  collection.subpath,
+                  [...(_.get(parent, collection.subpath) || []), item]
+                )
+                await _.last(parentDaos).update(parent, parentIds.slice(0, -1))
+              }
+            }
+            break
+          }
+        }
+      } else {
+        const wrappedItem = draftBatchId ? wrapDraft(item) : item
+        const insertResult = await rawDao.insert(wrappedItem, {client})
+        item = draftBatchId ? unwrapDraft(insertResult) : insertResult
+      }
+      for (const callback of dbCallbacks.afterInsert || []) {
+        await callback(item, {draftBatchId})
+      }
+      return item
+    },
+
+    // No support for parent IDs
+    insertMultipleItems: async function(items: Entity[]) {
+      if (items.length > 0) {
+        if (draftBatchId) {
+          items = items.map((item) => wrapDraft(item))
+        }
+        await rawDao.insertMultipleItems(items)
+      }
+    },
+
+    save: async function(item: Entity, parentIds: Id[] = [], {client = null} = {}) {
+      if (item._id) {
+        return await this.update(item, parentIds, {client})
+      } else {
+        return await this.insert(item, parentIds, {client})
+      }
+    },
+
+    update: async function(item: Entity, parentIds: Id[] = [], {client = null} = {}) {
+      item = this.sanitizeItem(item)
+      let originalItem = null
+      if ([...dbCallbacks.beforeUpdate || [], ...dbCallbacks.afterUpdate || []].length > 0) {
+        originalItem = await this.fetchOneById(item._id)
+      }
+      for (const callback of dbCallbacks.beforeUpdate || []) {
+        await callback(originalItem, item, {draftBatchId})
+      }
+      for (const callback of dbCallbacks.beforeUpdateWithoutOriginal || []) {
+        await callback(item, {draftBatchId})
+      }
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list': {
+            // TODO First check that the item belongs to the collection.
+            const wrappedItem = draftBatchId ? wrapDraft(item) : item
+            const updateResult = await rawDao.update(wrappedItem, {client})
+            item = draftBatchId ? unwrapDraft(updateResult) : updateResult
+            break
+          }
+          case 'subdocument': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              const existingItemIndex = (_.get(parent, collection.name) || []).findIndex((x: any) => x?._id == item._id)
+              if (existingItemIndex < 0) {
+                return null // TODO Error
+              } else {
+                const collectionItems = _.get(parent, collection.name)
+                collectionItems.splice(existingItemIndex, 1, item)
+                _.set(parent, collection.name, collectionItems)
+                await _.last(parentDaos).update(parent, parentIds.slice(0, -1))
+              }
+            }
+            break
+          }
+        }
+      } else {
+        const wrappedItem = draftBatchId ? wrapDraft(item) : item
+
+        if (!draftBatchId && mayTrackChanges) {
+          let trackChange = entityType.history?.trackChange
+          if (_.isFunction(trackChange)) {
+            if (originalItem == null) {
+              originalItem = await this.fetchOneById(item._id)
+            }
+            trackChange = await trackChange(originalItem, item)
+          }
+          if (trackChange) {
+            if (originalItem == null) {
+              originalItem = await this.fetchOneById(item._id)
+              if (_.isEqual(originalItem, item)) {
+                trackChange = false
+              }
+            }
+            if (trackChange) {
+              await recordItemVersion(originalItem, client)
+            }
+          }
+        }
+
+        const updateResult = await rawDao.update(wrappedItem, {client})
+        item = draftBatchId ? unwrapDraft(updateResult) : updateResult
+      }
+      for (const callback of dbCallbacks.afterUpdateWithoutOriginal || []) {
+        await callback(item, {draftBatchId})
+      }
+      for (const callback of dbCallbacks.afterUpdate || []) {
+        await callback(originalItem, item, {draftBatchId})
+      }
+      return item
+    },
+
+    // No support for parent IDs
+    updateMultipleItems: async function(items: Entity[]) {
+      await rawDao.updateMultipleItems(items)
+    },
+
+    // For now we just support property-equality queries with one or more properties.
+    delete: async function(query?: QueryClause, parentIds: Id[] = [], {client = null} = {}) {
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list':
+            // TODO
+            break
+          case 'subdocument': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client})
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              // TODO Implement collection filtering by query
+              return (_.get(parent, collection.name) || []).find(() => false)
+            }
+          }
+        }
+      } else {
+        let idsToDelete: Id[] = []
+        if (
+          (dbCallbacks.beforeDelete || []).length > 0
+          || (dbCallbacks.afterDelete || []).length > 0
+        ) {
+          const itemsToDelete = await rawDao.fetch(query, {client}) as FetchResults
+          idsToDelete = itemsToDelete.map((item) => item._id)
+        }
+        for (const id of idsToDelete) {
+          for (const callback of dbCallbacks.beforeDelete || []) {
+            await callback(id)
+          }
+        }
+
+        await rawDao.delete(query, {client})
+
+        for (const id of idsToDelete) {
+          for (const callback of dbCallbacks.afterDelete || []) {
+            await callback(id)
+          }
+        }
+
+        /*
+        if (rows.length == 1) {
+          return {_id: rows[0].id, ...rows[0].data}
+        } else {
+          return null
+        }
+        */
+      }
+    },
+
+    deleteOneById: async function(id: Id, parentIds = [], {client = null} = {}) {
+      const collection = _.last(parentCollections)
+      if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        switch (collection.persistence) {
+          case 'id-list': {
+            // TODO First check that the item belongs to the collection.
+            for (const callback of dbCallbacks.beforeDelete || []) {
+              await callback(id)
+            }
+            await rawDao.deleteOneById(id, {client})
+            for (const callback of dbCallbacks.afterDelete || []) {
+              await callback(id)
+            }
+            break
+          }
+          case 'subdocument': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              const existingItemIndex = (_.get(parent, collection.name) || []).findIndex((x: any) => x?._id == id)
+              if (existingItemIndex < 0) {
+                return null // TODO Error
+              } else {
+                for (const callback of dbCallbacks.beforeDelete || []) {
+                  await callback(id)
+                }
+                const collectionItems = _.get(parent, collection.name)
+                collectionItems.splice(existingItemIndex, 1)
+                _.set(parent, collection.name, collectionItems)
+                await _.last(parentDaos).update(parent, parentIds.slice(0, -1))
+                for (const callback of dbCallbacks.afterDelete || []) {
+                  await callback(id)
+                }
+              }
+            }
+            break
+          }
+        }
+      } else {
+        for (const callback of dbCallbacks.beforeDelete || []) {
+          await callback(id)
+        }
+        await rawDao.deleteOneById(id, {client})
+        for (const callback of dbCallbacks.afterDelete || []) {
+          await callback(id)
+        }
+      }
+    }
+  }
+}
+
+export default makeDao
