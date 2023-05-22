@@ -112,6 +112,9 @@ export interface EntityTypeDefinition {
   history?: {
     trackChange?: boolean | ((oldItem: Entity, newItem: Entity) => boolean | Promise<boolean>)
   }
+  derivedProperties?: {
+    [propertyName: string]: (item: Entity) => any
+  },
   restCallbacks?: RestCallbacks
   extraCollectionActions: {
     [actionName: string]: {
@@ -247,4 +250,12 @@ export async function makeEntityType(definition: EntityTypeDefinition): Promise<
   entityType.schema = makeSchemaConcrete(schema, 'model')
   entityTypes[entityType.name] = entityType
   return entityType
+}
+
+export async function calculateDerivedProperties(entityType: EntityType, item: Entity) {
+  if (entityType.derivedProperties) {
+    for (const derivedPropertyPath of _.keys(entityType.derivedProperties)) {
+      _.set(item, derivedPropertyPath, await entityType.derivedProperties[derivedPropertyPath](item))
+    }
+  }
 }

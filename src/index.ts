@@ -4,7 +4,13 @@ import config, {DocOrmConfig, DocOrmConfigInput, setConfig} from './config.js'
 import makeDao, {Dao} from './dao.js'
 import {setLogger} from './logger.js'
 import * as db from './postgresql/db.js'
-import {getEntityType, getEntityTypes, makeEntityType, registerEntityTypes} from './entity-types.js'
+import {
+  calculateDerivedProperties,
+  getEntityType,
+  getEntityTypes,
+  makeEntityType,
+  registerEntityTypes
+} from './entity-types.js'
 import {InternalError, PersistenceError} from './errors.js'
 import {
   findPropertyInSchema,
@@ -35,6 +41,7 @@ export {
   makeSchemaConcrete,
   registerSchemaDirectory,
 
+  calculateDerivedProperties,
   getEntityType,
   getEntityTypes,
   makeEntityType,
