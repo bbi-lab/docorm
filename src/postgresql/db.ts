@@ -6,7 +6,7 @@
 
 import {Mutex} from 'async-mutex'
 import cls from 'cls-hooked'
-import {Pool, PoolClient} from 'pg'
+import pg from 'pg'
 import QueryStream from 'pg-query-stream'
 import pgpFactory from 'pg-promise'
 
@@ -21,10 +21,10 @@ import {PersistenceError} from '../errors.js'
 // - PGDATABASE default: process.env.user
 // - PGPASSWORD default: null
 
-export type Client = PoolClient & {lastQuery?: any[], numQueriesInTransaction?: number}
+export type Client = pg.PoolClient & {lastQuery?: any[], numQueriesInTransaction?: number}
 
 /** node-postgres connection pool. */
-let pool: Pool | null = null
+let pool: pg.Pool | null = null
 
 /** pg-promise database factory. */
 let pgp: ReturnType<typeof pgpFactory> | null
@@ -38,7 +38,7 @@ const getClientMutex = new Mutex()
 export function initDb() {
   // node-postgres setup
 
-  pool = new Pool({
+  pool = new pg.Pool({
     ssl: config.postgresql.ssl ?
         {
           rejectUnauthorized: !config.postgresql.allowUnknownSslCertificate
