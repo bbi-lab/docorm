@@ -1,19 +1,50 @@
 import _ from 'lodash'
 
-// const {db, makeDao} = await import(`./${config.db.dbType}/index.js`)
-import makeDao from './dao.js'
-import * as db from './postgresql/db.js'
-
-import config, {DocOrmConfigInput, setConfig} from './config.js'
+import config, {DocOrmConfig, DocOrmConfigInput, setConfig} from './config.js'
+import makeDao, {Dao} from './dao.js'
 import {setLogger} from './logger.js'
-import {initDb} from './postgresql/db.js'
+import * as db from './postgresql/db.js'
+import {InternalError, PersistenceError} from './errors.js'
+import {
+  ConcreteEntitySchema,
+  EntitySchema,
+  findPropertyInSchema,
+  findRelatedItemsInSchema,
+  findRelatedItemsInSchemaAlongPath,
+  getSchema,
+  listTransientPropertiesOfSchema,
+  makeSchemaConcrete,
+  registerSchemaDirectory
+} from './schemas.js'
 
 export function initDocOrm(config: DocOrmConfigInput) {
   setConfig(config)
   if (config.logger) {
     setLogger(config.logger)
   }
-  initDb()
+  db.initDb()
 }
 
-export {db, makeDao}
+export {
+  DocOrmConfig,
+  DocOrmConfigInput,
+  config,
+
+  ConcreteEntitySchema,
+  EntitySchema,
+  findPropertyInSchema,
+  findRelatedItemsInSchema,
+  findRelatedItemsInSchemaAlongPath,
+  getSchema,
+  listTransientPropertiesOfSchema,
+  makeSchemaConcrete,
+  registerSchemaDirectory,
+
+  db,
+
+  Dao,
+  makeDao,
+
+  InternalError,
+  PersistenceError
+}

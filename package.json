@@ -1,8 +1,8 @@
 {
   "name": "@bbi-lab/docorm",
-  "version": "0.0.1-alpha-2",
+  "version": "0.0.1-alpha-1",
   "description": "Persistence layer with ORM features for JSON documents",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",

@@ -16,7 +16,7 @@ export interface DocOrmConfigInput {
   }
 }
 
-interface DocOrmConfig extends DocOrmConfigInput {
+export interface DocOrmConfig extends DocOrmConfigInput {
   logger?: winston.Logger,
   clsNamespaceName?: string,
   operationIdKey?: string,
