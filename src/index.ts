@@ -7,8 +7,6 @@ import * as db from './postgresql/db.js'
 import {getEntityType, getEntityTypes, makeEntityType, registerEntityTypes} from './entity-types.js'
 import {InternalError, PersistenceError} from './errors.js'
 import {
-  ConcreteEntitySchema,
-  EntitySchema,
   findPropertyInSchema,
   findRelatedItemsInSchema,
   findRelatedItemsInSchemaAlongPath,
@@ -27,12 +25,8 @@ export function initDocOrm(config: DocOrmConfigInput) {
 }
 
 export {
-  DocOrmConfig,
-  DocOrmConfigInput,
   config,
 
-  ConcreteEntitySchema,
-  EntitySchema,
   findPropertyInSchema,
   findRelatedItemsInSchema,
   findRelatedItemsInSchemaAlongPath,
@@ -48,7 +42,6 @@ export {
 
   db,
 
-  Dao,
   makeDao,
 
   InternalError,

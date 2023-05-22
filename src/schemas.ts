@@ -7,9 +7,9 @@ export type JSONSchema = object
 export type EntitySchema = JSONSchema
 export type ConcreteEntitySchema = EntitySchema
 
-type SchemaPath = string | string[]
-type SchemaType = 'model' | 'view-model'
-interface SchemaDirectory {
+export type SchemaPath = string | string[]
+export type SchemaType = 'model' | 'view-model'
+export interface SchemaDirectory {
   namespace?: string,
   schemaType: SchemaType,
   path: string,
@@ -39,7 +39,7 @@ export function getSchema(path: SchemaPath, schemaType: SchemaType, namespace: s
   return null
 }
 
-interface MakeSchemaConcreteState {
+export interface MakeSchemaConcreteState {
   knownConcreteSubschemas: {
     [path: string]: EntitySchema
   },
@@ -145,9 +145,9 @@ export function makeSchemaConcrete(
   return concreteSchema
 }
 
-type RelatedItemStorage = 'copy' | 'ref'
+export type RelatedItemStorage = 'copy' | 'ref'
 
-interface RelatedItem {
+export interface RelatedItem {
   path: string
   schema: ConcreteEntitySchema
   entityTypeName: string

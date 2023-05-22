@@ -1,74 +1,74 @@
-type PropertyPath = string | string[]
+export type PropertyPath = string | string[]
 
-type Id = string | number
+export type Id = string | number
 
-type QueryConstant = string | number | boolean | null
-type QueryFullTextSearchContext = 'default'
-type QueryPath = string
+export type QueryConstant = string | number | boolean | null
+export type QueryFullTextSearchContext = 'default'
+export type QueryPath = string
 
-interface QueryCoalesceExpression {coalesce: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryConstantExpression {constant: QueryConstant}
-interface QueryConstantListExpression {constant: QueryConstant[]}
-interface QueryFullTextExpression {text: QueryFullTextSearchContext}
-interface QueryFunctionExpression {function: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryOperatorExpression {operator: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryPathExpression {path: QueryPath, sqlType?: string}
-interface QueryRangeExpression {range: [QueryConstant, QueryConstant]}
-type QueryExpression = QueryCoalesceExpression | QueryConstantExpression | QueryConstantListExpression
+export interface QueryCoalesceExpression {coalesce: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryConstantExpression {constant: QueryConstant}
+export interface QueryConstantListExpression {constant: QueryConstant[]}
+export interface QueryFullTextExpression {text: QueryFullTextSearchContext}
+export interface QueryFunctionExpression {function: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryOperatorExpression {operator: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryPathExpression {path: QueryPath, sqlType?: string}
+export interface QueryRangeExpression {range: [QueryConstant, QueryConstant]}
+export type QueryExpression = QueryCoalesceExpression | QueryConstantExpression | QueryConstantListExpression
     | QueryFullTextExpression | QueryFunctionExpression | QueryOperatorExpression | QueryPathExpression
     | QueryRangeExpression
 
-interface QueryBetweenClause {
+export interface QueryBetweenClause {
   operator: 'between',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryRangeExpression
 }
 
-interface QueryComparisonClause {
+export interface QueryComparisonClause {
   operator?: '=' | '<' | '>' | '<=' | '>=' | '!=',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryConstantExpression | QueryPathExpression
 }
 
-interface QueryInClause {
+export interface QueryInClause {
   operator: 'in',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryConstantListExpression
 }
 
-interface QueryFullTextSearchClause {
+export interface QueryFullTextSearchClause {
   operator: 'contains'
   l: QueryFullTextExpression
   r: QueryConstantExpression | QueryPathExpression
 }
 
-type QuerySimpleClause = QueryBetweenClause | QueryComparisonClause | QueryInClause | QueryFullTextSearchClause
+export type QuerySimpleClause = QueryBetweenClause | QueryComparisonClause | QueryInClause | QueryFullTextSearchClause
 
-interface QueryAndClause {
+export interface QueryAndClause {
   and: QueryClause[]
 }
 
-interface QueryOrClause {
+export interface QueryOrClause {
   or: QueryClause[]
 }
 
-interface QueryNotClause {
+export interface QueryNotClause {
   not: QueryClause
 }
 
-type QueryClause = QuerySimpleClause | QueryAndClause | QueryOrClause | QueryNotClause | true | false
+export type QueryClause = QuerySimpleClause | QueryAndClause | QueryOrClause | QueryNotClause | true | false
 
-type QueryOrderProperty = QueryPathExpression
-type QueryOrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC'
-type QueryOrderElement = QueryOrderProperty | [QueryOrderProperty, QueryOrderDirection]
-type QueryOrder = QueryOrderElement[]
+export type QueryOrderProperty = QueryPathExpression
+export type QueryOrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC'
+export type QueryOrderElement = QueryOrderProperty | [QueryOrderProperty, QueryOrderDirection]
+export type QueryOrder = QueryOrderElement[]
 
-interface SqlExpression {
+export interface SqlExpression {
   expression: string,
   parameterValues: any[]
 }
 
-interface SqlClause {
+export interface SqlClause {
   sqlClause: string | null,
   parameterValues: any[]
 }

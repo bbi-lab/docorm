@@ -5,9 +5,9 @@ import {InternalError} from './errors.js'
 import {importDirectory} from './import-dir.js'
 import {ConcreteEntitySchema, EntitySchema, getSchema, makeSchemaConcrete} from './schemas.js'
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+export type HttpMethod = 'get' | 'post' | 'put' | 'delete'
 
-type EntityTypeName = string
+export type EntityTypeName = string
 export type Entity = {
   _id: Id
   [key: string]: any
@@ -20,16 +20,16 @@ export interface Collection {
   persistence: 'id-list' | 'subdocument'
 }
 
-interface User {
+export interface User {
   _id: string,
   initials: string
 }
 
-interface SaveDaoCallbackOptions {
+export interface SaveDaoCallbackOptions {
   draftBatchId?: string
 }
 
-interface BeforeSaveRestCallbackOptions {
+export interface BeforeSaveRestCallbackOptions {
   user?: User,
   draftBatchId?: string,
   parentCollections: Collection[],
@@ -38,7 +38,7 @@ interface BeforeSaveRestCallbackOptions {
   dao: Dao
 }
 
-interface AfterSaveRestCallbackOptions {
+export interface AfterSaveRestCallbackOptions {
   user?: User,
   draftBatchId?: string,
   parentCollections: Collection[],
@@ -46,7 +46,7 @@ interface AfterSaveRestCallbackOptions {
   parentIds: string[]
 }
 
-interface BeforeListItemsRestCallbackOptions {
+export interface BeforeListItemsRestCallbackOptions {
   user?: User,
   draftBatchId?: string,
   parentCollections: Collection[],
@@ -58,7 +58,7 @@ interface BeforeListItemsRestCallbackOptions {
   limit?: number
 }
 
-interface BeforeValidateRestCallbackOptions {
+export interface BeforeValidateRestCallbackOptions {
   user?: User,
   draftBatchId?: string,
   parentCollections: Collection[],
@@ -67,7 +67,7 @@ interface BeforeValidateRestCallbackOptions {
   dao: Dao
 }
 
-interface DbCallbacks {
+export interface DbCallbacks {
   beforeInsert?: ((item: Entity, options: SaveDaoCallbackOptions) => void)[]
   afterInsert?: ((item: Entity, options: SaveDaoCallbackOptions) => void)[]
   beforeUpdate?: ((oldItem: Entity, newItem: Entity, options: SaveDaoCallbackOptions) => void)[]
@@ -79,7 +79,7 @@ interface DbCallbacks {
   beforeEmbedRelatedItemCopy?: ((item: Entity, relatedItemPath: string, relatedItemEntityType: EntityType, relatedItem: Entity) => Entity)[]
 }
 
-interface RestCallbacks {
+export interface RestCallbacks {
   beforeCreate?: ((item: Entity, options: BeforeSaveRestCallbackOptions) => void)[]
   afterCreate?: ((item: Entity, options: AfterSaveRestCallbackOptions) => void)[]
   beforeListItems?: ((options: BeforeListItemsRestCallbackOptions) => void)[]
