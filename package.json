@@ -1,6 +1,6 @@
 {
   "name": "@bbi-lab/docorm",
-  "version": "0.0.1-alpha",
+  "version": "0.0.1-alpha-1",
   "description": "Persistence layer with ORM features for JSON documents",
   "main": "index.js",
   "scripts": {
