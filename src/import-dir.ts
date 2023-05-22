@@ -10,7 +10,7 @@ const DEFAULT_DIRECTORY_IMPORT_OPTIONS = {
   /** A flag indicating whether to import modules recursively from subdirectories. */
   recurse: false,
   /** An array of filename extensions to import. */
-  extensions: ['.js', '.json']
+  extensions: ['js', 'json']
 }
 
 /**
