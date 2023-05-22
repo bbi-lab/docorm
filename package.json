@@ -32,7 +32,7 @@
   "engines": {
     "node": ">= 14.0.0"
   },
-  "files": ["lib/**/*"],
+  "files": ["dist/**/*"],
   "dependencies": {
     "async-mutex": "^0.3.1",
     "cls-hooked": "^4.2.2",
