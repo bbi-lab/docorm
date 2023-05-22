@@ -181,10 +181,10 @@ export async function commit(client?: Client) {
   if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
-  if (!client) {
+  /*if (!client) {
     throw new PersistenceError('No database client when attempting to commit changes.', {operationId})
-  }
-  if (client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
+  }*/
+  if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
     logger().info('Committed changes', {operationId})
     client.numQueriesInTransaction = 0
@@ -198,12 +198,12 @@ export async function commitAndBeginTransaction(client: Client | null = null) {
  if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
-  if (!client) {
+  /*if (!client) {
     throw new PersistenceError(
       'No database client when attempting to commit changes and begin a new transaction.',
       {operationId}
     )
-  }
+  }*/
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
     logger().info('Committed changes', {operationId})
