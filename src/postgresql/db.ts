@@ -10,7 +10,7 @@ import pg from 'pg'
 import QueryStream from 'pg-query-stream'
 import pgpFactory from 'pg-promise'
 
-import config from '../config.js'
+import {docorm} from '../index.js'
 import logger from '../logger.js'
 import {PersistenceError} from '../errors.js'
 
@@ -39,9 +39,9 @@ export function initDb() {
   // node-postgres setup
 
   pool = new pg.Pool({
-    ssl: config.postgresql.ssl ?
+    ssl: docorm.config.postgresql.ssl ?
         {
-          rejectUnauthorized: !config.postgresql.allowUnknownSslCertificate
+          rejectUnauthorized: !docorm.config.postgresql.allowUnknownSslCertificate
         }
         : undefined,
     max: 100
@@ -60,21 +60,21 @@ export function initDb() {
 
   const pgp = pgpFactory({capSQL: true})
   const pgpDb = pgp({
-    host: config.postgresql.host,
-    port: config.postgresql.port,
-    database: config.postgresql.database,
-    user: config.postgresql.username,
-    password: config.postgresql.password,
-    ssl: config.postgresql.ssl ?
-        {rejectUnauthorized: !config.postgresql.allowUnknownSslCertificate}
+    host: docorm.config.postgresql.host,
+    port: docorm.config.postgresql.port,
+    database: docorm.config.postgresql.database,
+    user: docorm.config.postgresql.username,
+    password: docorm.config.postgresql.password,
+    ssl: docorm.config.postgresql.ssl ?
+        {rejectUnauthorized: !docorm.config.postgresql.allowUnknownSslCertificate}
         : undefined,
     max: 20
   })
 }
 
 function getClsNamespace() {
-  const clsNamespace = config.clsNamespaceName ? cls.getNamespace(config.clsNamespaceName) : null
-  const operationId = (config.operationIdKey ? clsNamespace?.get(config.operationIdKey) : undefined) as string | undefined
+  const clsNamespace = docorm.config.clsNamespaceName ? cls.getNamespace(docorm.config.clsNamespaceName) : null
+  const operationId = (docorm.config.operationIdKey ? clsNamespace?.get(docorm.config.operationIdKey) : undefined) as string | undefined
   return {clsNamespace, operationId}
 }
 

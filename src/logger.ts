@@ -1,7 +1,7 @@
 import _ from 'lodash'
 import winston from 'winston'
 
-import config from './config.js'
+import {docorm} from './index.js'
 
 const levels = {
   emergency: 0,
@@ -89,8 +89,8 @@ export function setLogger(logger: winston.Logger | null) {
 }
 
 export default function logger() {
-  if (!_logger && config.logger) {
-    _logger = config.logger
+  if (!_logger && docorm.config.logger) {
+    _logger = docorm.config.logger
   }
   if (!_logger) {
     _logger = winston.createLogger({

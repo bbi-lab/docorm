@@ -1,6 +1,6 @@
 import _ from 'lodash'
 
-import config, {DocOrmConfig, DocOrmConfigInput, setConfig} from './config.js'
+import {DEFAULT_DOC_ORM_CONFIG, DocOrmConfig, DocOrmConfigInput} from './config.js'
 import makeDao, {Dao} from './dao.js'
 import {setLogger} from './logger.js'
 import * as db from './postgresql/db.js'
@@ -22,14 +22,21 @@ import {
   registerSchemaDirectory
 } from './schemas.js'
 
+export const docorm: {
+  config: DocOrmConfig
+} = {
+  config: {...DEFAULT_DOC_ORM_CONFIG}
+}
+
 export function initDocOrm(config: DocOrmConfigInput) {
-  setConfig(config)
+  docorm.config = _.merge({}, DEFAULT_DOC_ORM_CONFIG, config)
   if (config.logger) {
     setLogger(config.logger)
   }
   db.initDb()
 }
 
+/*
 export function makeDocOrmMiddleware() {
   const localConfig = config
   // Build a lambda closure that captures the current configuration.
@@ -39,10 +46,9 @@ export function makeDocOrmMiddleware() {
     next()
   }
 }
+*/
 
 export {
-  config,
-
   findPropertyInSchema,
   findRelatedItemsInSchema,
   findRelatedItemsInSchemaAlongPath,
