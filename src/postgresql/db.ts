@@ -220,9 +220,11 @@ export async function rollback(client: Client | null = null) {
   if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
+  /*
   if (!client) {
     throw new PersistenceError('No database client when attempting to roll changes back.', {operationId})
   }
+  */
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('ROLLBACK')
     logger().info(`Rolled back transaction`, {operationId})
