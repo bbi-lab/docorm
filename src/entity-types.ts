@@ -145,6 +145,10 @@ export function getEntityType(name: string): EntityType {
   return entityTypes[name]
 }
 
+export async function getEntityTypes() {
+  return entityTypes
+}
+
 /*
 let loadedAllEntityTypes = false
 export async function getEntityTypes() {
