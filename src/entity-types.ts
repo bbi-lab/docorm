@@ -3,9 +3,12 @@ import _ from 'lodash'
 import {Dao} from './dao.js'
 import {InternalError} from './errors.js'
 import {importDirectory} from './import-dir.js'
+import {QueryClause, QueryOrder} from './queries.js'
 import {ConcreteEntitySchema, EntitySchema, getSchema, makeSchemaConcrete} from './schemas.js'
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+
+export type Id = string | number
 
 export type EntityTypeName = string
 export type Entity = {

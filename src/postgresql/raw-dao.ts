@@ -4,9 +4,27 @@ import {Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
 import * as db from './db.js'
-import {Entity, EntityType} from '../entity-types.js'
+import {Entity, EntityType, Id} from '../entity-types.js'
 import {PersistenceError} from '../errors.js'
-import '../queries.js'
+import {
+  PropertyPath,
+  QueryClause,
+  queryClauseIsAnd,
+  queryClauseIsFullTextSearch,
+  queryClauseIsNot,
+  queryClauseIsOr,
+  QueryExpression,
+  queryExpressionIsCoalesce,
+  queryExpressionIsConstant,
+  queryExpressionIsFullText,
+  queryExpressionIsFunction,
+  queryExpressionIsOperator,
+  queryExpressionIsPath,
+  queryExpressionIsRange,
+  QueryOrder,
+  SqlClause,
+  SqlExpression
+} from '../queries.js'
 
 const ALLOWED_OPERATORS = ['AND', 'OR', 'NOT']
 const SQL_TYPES = ['boolean']

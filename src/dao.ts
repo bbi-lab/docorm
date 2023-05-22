@@ -10,10 +10,11 @@ import _ from 'lodash'
 import {Readable, Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
-import {Collection, Entity, EntityType, getEntityType} from './entity-types.js'
+import {Collection, Entity, EntityType, getEntityType, Id} from './entity-types.js'
 import {PersistenceError} from './errors.js'
 import {Client} from './postgresql/db.js'
-import makeRawDao, {FetchResults, fetchResultsIsStream} from './postgresql/raw-dao.js'
+import {QueryClause, queryClauseIsAnd, QueryOrder} from './queries.js'
+import makeRawDao, {FetchResults, fetchResultsIsArray, fetchResultsIsStream} from './postgresql/raw-dao.js'
 import {
   ConcreteEntitySchema,
   findPropertyInSchema,
@@ -454,8 +455,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             })
             return {run: itemsOrStreamQuery.run, stream: itemsOrStreamQuery.stream.pipe(unwrapDrafts)}
             // return itemsOrStreamQuery.pipe(unwrapDrafts)
-          } else {
-            return itemsOrStreamQuery.map((item) => unwrapDraft(item))
+          } else if (fetchResultsIsArray(itemsOrStreamQuery)) {
+            return itemsOrStreamQuery.map((item: Entity) => unwrapDraft(item))
           }
         } else {
           return itemsOrStreamQuery
@@ -573,8 +574,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (pathsToExpand) {
         pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
       }
-      const pointersToExpand = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
-        jsonPath({path, json: items, resultType: 'pointer'})
+      const pointersToExpand: string[] | null = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
+        jsonPath({path, json: items, resultType: 'pointer'}) as string[]
       ).flat()) : null
 
       // Get all related item references in the current item.
@@ -582,7 +583,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
       for (const relatedItemDefinition of relatedItemDefinitions) {
         const pathInItemsArray = relatedItemDefinition.path.replace(/^\$/, '$[*]')
-        let referencePointers = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'})
+        let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
         if (pointersToExpand) {
           referencePointers = _.intersection(referencePointers, pointersToExpand)
         }
