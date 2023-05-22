@@ -30,6 +30,16 @@ export function initDocOrm(config: DocOrmConfigInput) {
   db.initDb()
 }
 
+export function makeDocOrmMiddleware() {
+  const localConfig = config
+  // Build a lambda closure that captures the current configuration.
+  // We use 'any' here so that we don't need Express.js as a dependency.
+  return (req: any, res: any, next: any) => {
+    initDocOrm(localConfig)
+    next()
+  }
+}
+
 export {
   config,
 
