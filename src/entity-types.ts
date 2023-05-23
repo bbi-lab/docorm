@@ -261,10 +261,8 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
 export async function makeEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
   const parentEntityType: EntityType | undefined = definition.parent ? makeParentProxy(definition.parent) : undefined
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
-    parent: parentEntityType,
-    abstract: definition.abstract || false,
-    dbCallbacks: makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks'),
-    restCallbacks: makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
+    parent: undefined,
+    abstract: definition.abstract || false
     /*
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
@@ -276,6 +274,9 @@ export async function makeEntityType(definition: EntityTypeDefinition): Promise<
     )
     */
   })
+  entityType.parent = parentEntityType
+  entityType.dbCallbacks = makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks')
+  entityType.restCallbacks = makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
   const schema = getSchema(`${definition.schema.name}.${definition.schema.currentVersion}`, 'model')
   if (!schema) {
     throw new InternalError(`Entity type "${entityType.name} has no schema.`)

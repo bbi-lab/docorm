@@ -50,7 +50,7 @@ interface DirectoryImportCatalogue {
  *   according to whether directoryPath is absolute or relative.
  */
 export async function catalogueDirectoryImports(directoryPath: string, options: DirectoryImportOptions = DEFAULT_DIRECTORY_IMPORT_OPTIONS): Promise<DirectoryImportCatalogue> {
-  Object.assign(options, DEFAULT_DIRECTORY_IMPORT_OPTIONS)
+  const {extensions, recurse} = Object.assign({}, DEFAULT_DIRECTORY_IMPORT_OPTIONS, options)
   const result: DirectoryImportCatalogue = {}
   const filenames = (await isDirectory(directoryPath)) ? (await readdir(directoryPath)) : []
   await Promise.all(
@@ -59,12 +59,12 @@ export async function catalogueDirectoryImports(directoryPath: string, options: 
       const submoduleName = path.basename(filename, path.extname(filename))
       const stats = await stat(fullPath)
       if (stats.isDirectory()) {
-        if (options.recurse) {
+        if (recurse) {
           result[submoduleName] = await catalogueDirectoryImports(fullPath, options)
         }
       } else {
         const extension = filenameExtension(filename)
-        if (!options.extensions || options.extensions.includes(extension)) {
+        if (!extensions || extensions.includes(extension)) {
           result[submoduleName] = fullPath
         }
       }
@@ -94,7 +94,7 @@ export async function catalogueDirectoryImports(directoryPath: string, options: 
  *   subdirectory, whose value is another object of the same sort.
  */
 export async function importDirectory(directoryPath: string, options: DirectoryImportOptions = DEFAULT_DIRECTORY_IMPORT_OPTIONS): Promise<object> {
-  Object.assign(options, DEFAULT_DIRECTORY_IMPORT_OPTIONS)
+  const {extensions, recurse} = Object.assign({}, DEFAULT_DIRECTORY_IMPORT_OPTIONS, options)
   const result: {[submoduleName: string]: any} = {}
   const filenames = (await isDirectory(directoryPath)) ? (await readdir(directoryPath)) : []
   await Promise.all(
@@ -103,12 +103,12 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
       const submoduleName = path.basename(filename, path.extname(filename))
       const stats = await stat(fullPath)
       if (stats.isDirectory()) {
-        if (options.recurse) {
+        if (recurse) {
           result[submoduleName] = await importDirectory(fullPath, options)
         }
       } else {
         const extension = filenameExtension(filename)
-        if (!options.extensions || options.extensions.includes(extension)) {
+        if (!extensions || extensions.includes(extension)) {
           // console.log(`Importing file ${fullPath}`)
 
           // Using file:// makes this work with Windows paths that begin with drive letters.
