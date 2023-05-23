@@ -309,21 +309,23 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
       definition.restCallbacks || {}
     )
   })
-  entityTypes[entityType.name] = entityType
   return entityType
 }
 
 export function makeEntityType(definition: EntityTypeDefinition): EntityType {
+  let entityType: EntityType | undefined = undefined
   if (definition.parent) {
     const parentEntityType = getEntityType(definition.parent, {required: false})
     if (!parentEntityType) {
-      return makeObjectProxy(() => makeUnproxiedEntityType(definition))
+      entityType = makeObjectProxy(() => makeUnproxiedEntityType(definition))
     } else {
-      return makeUnproxiedEntityType(definition)
+      entityType = makeUnproxiedEntityType(definition)
     }
   } else {
-    return makeUnproxiedEntityType(definition)
+    entityType = makeUnproxiedEntityType(definition)
   }
+  entityTypes[definition.name] = entityType
+  return entityType
 }
 
 export async function calculateDerivedProperties(entityType: EntityType, item: Entity) {
