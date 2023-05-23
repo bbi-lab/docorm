@@ -24,7 +24,7 @@ const schemaDirectories: SchemaDirectory[] = []
  * @param namespace 
  */
 export async function registerSchemaDirectory(path: string, schemaType: SchemaType, namespace: string | undefined = undefined) {
-  const schemas = await importDirectory(path, {recurse: true, extensions: ['.json']})
+  const schemas = await importDirectory(path, {recurse: true, extensions: ['json']})
   schemaDirectories.push({namespace, schemaType, path, schemas})
 }
 
