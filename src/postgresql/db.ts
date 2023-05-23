@@ -58,6 +58,8 @@ export function initDb() {
   // replacing getClient below with getTx (where transactions are needed) and getTask (where they are
   // not).
 
+  // TODO Since we have already set up pg.Pool, this results in a warning about duplicate database objects.
+
   const pgp = pgpFactory({capSQL: true})
   const pgpDb = pgp({
     host: docorm.config.postgresql.host,
