@@ -567,7 +567,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
       // Get all related item definitions in the current item's entity type.
       if (relatedItemDefinitions == null) {
-        relatedItemDefinitions = findRelatedItemsInSchema(entityType.schema, ['ref'])
+        relatedItemDefinitions = findRelatedItemsInSchema(entityType.concreteSchema, ['ref'])
       }
 
       // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).

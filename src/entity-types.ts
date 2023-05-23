@@ -255,7 +255,7 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
       }
       return undefined
     },
-    ownKeys: (target) => Object.keys(target),
+    ownKeys: (target) => target.value ? Object.keys(target.value) : [],
     getOwnPropertyDescriptor: (target, property) => {
       if (property == '_isProxy') {
         return {enumerable: false, value: true}
