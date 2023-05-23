@@ -554,7 +554,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
       // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
       // more than once.
-      if (knownItems == null) {
+      if (knownItems[entityType.name] == null) {
         knownItems = {
           [entityType.name]: {}
         }
