@@ -113,9 +113,9 @@ export function makeSchemaConcrete(
       })
       if ((schema as any).entityType && (schema as any).storage) {
         // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
-        Object.assign(subschema, _.pick(schema, ['entityType', 'storage']))
+        Object.assign(concreteSubschema, _.pick(schema, ['entityType', 'storage']))
       }
-      Object.assign(concreteSchema, subschema)
+      Object.assign(concreteSchema, concreteSubschema)
     }
   } else {
     switch ((schema as any).type) {
