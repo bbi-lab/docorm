@@ -144,8 +144,8 @@ export async function registerEntityTypes(dirPath: string) {
   await importDirectory(dirPath)
 }
 
-export function getEntityType(name: string): EntityType {
-  if (!entityTypes[name]) {
+export function getEntityType(name: string, {required = true} = {}): EntityType {
+  if (required && !entityTypes[name]) {
     throw new InternalError(`Entity type "${name}' is unknown.`)
   }
   return entityTypes[name]
@@ -258,7 +258,7 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
   }) as T
 }
 
-export async function makeUnproxiedEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
+export function makeUnproxiedEntityType(definition: EntityTypeDefinition): EntityType {
   const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
@@ -288,12 +288,16 @@ export async function makeUnproxiedEntityType(definition: EntityTypeDefinition):
   return entityType
 }
 
-export async function makeEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
-  const parentEntityType: EntityType | undefined = definition.parent ? makeParentProxy(definition.parent) : undefined
-  if ((parentEntityType as any)?._isProxy) {
-    return makeObjectProxy(() => makeUnproxiedEntityType(definition))
+export function makeEntityType(definition: EntityTypeDefinition): EntityType {
+  if (definition.parent) {
+    const parentEntityType = getEntityType(definition.parent, {required: false})
+    if (!parentEntityType) {
+      return makeObjectProxy(() => makeUnproxiedEntityType(definition))
+    } else {
+      return makeUnproxiedEntityType(definition)
+    }
   } else {
-    return await makeUnproxiedEntityType(definition)
+    return makeUnproxiedEntityType(definition)
   }
 }
 
