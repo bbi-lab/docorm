@@ -182,10 +182,11 @@ export async function getEntityType(entityTypeName) {
 }
 */
 
-function mergeCallbacks<T extends DbCallbacks | RestCallbacks>(...callbackSources: T[]): T {
+function mergeCallbacks<T = DbCallbacks | RestCallbacks>(...callbackSources: T[]): T {
   const callbacks: {[callbackName: string]: any[]} = {}
   for (const source of callbackSources) {
-    _.forEach(source, (callbacksOfType, key) => {
+    // TODO Eliminate "as object."
+    _.forEach(source as object, (callbacksOfType, key) => {
       if (!callbacks[key]) {
         callbacks[key] = []
       }
@@ -207,14 +208,47 @@ function makeParentProxy(parentName: string): EntityType {
 
 interface ObjectProxyTarget<T> {
   value?: T
+  loaded: boolean
 }
 
 function makeObjectProxy<T extends object>(load: () => T | undefined): T {
-  const target: ObjectProxyTarget<T> = {value: undefined}
+  const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
   return new Proxy(target, {
     get: (target, prop) => {
-      if (!target.value) {
+      if (prop == '_isProxy') {
+        return true
+      }
+      if (prop == '_loaded') {
+        return target.loaded
+      }
+      if (!target.loaded) {
         target.value = load()
+        target.loaded = true
+      }
+      if (target.value) {
+        return target.value[prop as keyof T]
+      }
+      return undefined
+    }
+  }) as T
+}
+
+function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T, parentEntityType: EntityType | undefined, callbacksProperty: string): T {
+  const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
+  return new Proxy(target, {
+    get: (target, prop) => {
+      if (prop == '_isProxy') {
+        return true
+      }
+      if (prop == '_loaded') {
+        return target.loaded
+      }
+      if (!target.loaded) {
+        target.value = mergeCallbacks(
+          (parentEntityType as any)?.[callbacksProperty] || {} as T,
+          callbacks || {} as T
+        )  
+        target.loaded = true
       }
       if (target.value) {
         return target.value[prop as keyof T]
@@ -229,15 +263,18 @@ export async function makeEntityType(definition: EntityTypeDefinition): Promise<
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
     abstract: definition.abstract || false,
+    dbCallbacks: makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks'),
+    restCallbacks: makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
+    /*
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
-      //(parentEntityType || {}).dbCallbacks || {},
       definition.dbCallbacks || {}
     ),
     restCallbacks: mergeCallbacks(
       parentEntityType?.restCallbacks || {},
       definition.restCallbacks || {}
     )
+    */
   })
   const schema = getSchema(`${definition.schema.name}.${definition.schema.currentVersion}`, 'model')
   if (!schema) {
