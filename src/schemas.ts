@@ -7,9 +7,9 @@ export type JSONSchema = object
 export type EntitySchema = JSONSchema
 export type ConcreteEntitySchema = EntitySchema
 
-type SchemaPath = string | string[]
-type SchemaType = 'model' | 'view-model'
-interface SchemaDirectory {
+export type SchemaPath = string | string[]
+export type SchemaType = 'model' | 'view-model'
+export interface SchemaDirectory {
   namespace?: string,
   schemaType: SchemaType,
   path: string,
@@ -24,14 +24,14 @@ const schemaDirectories: SchemaDirectory[] = []
  * @param namespace 
  */
 export async function registerSchemaDirectory(path: string, schemaType: SchemaType, namespace: string | undefined = undefined) {
-  const schemas = await importDirectory(path, {recurse: true, extensions: ['.json']})
+  const schemas = await importDirectory(path, {recurse: true, extensions: ['json']})
   schemaDirectories.push({namespace, schemaType, path, schemas})
 }
 
 export function getSchema(path: SchemaPath, schemaType: SchemaType, namespace: string | undefined = undefined): EntitySchema | null {
   const pathArr = _.isArray(path) ? path : path.split('.')
   for (const dir of schemaDirectories.filter((d) => d.schemaType == schemaType && d.namespace == namespace)) {
-    const schema = _.get(dir.schemas, [schemaType, ...pathArr], null)
+    const schema = _.get(dir.schemas, pathArr, null)
     if (schema) {
       return schema
     }
@@ -39,7 +39,7 @@ export function getSchema(path: SchemaPath, schemaType: SchemaType, namespace: s
   return null
 }
 
-interface MakeSchemaConcreteState {
+export interface MakeSchemaConcreteState {
   knownConcreteSubschemas: {
     [path: string]: EntitySchema
   },
@@ -72,9 +72,9 @@ export function makeSchemaConcrete(
       // Handle error
     }
     const requiredProperties = _.flatten(concreteSubschemas.map((s) => (s as any).required || []))
-    const properties = _.assign({}, ...concreteSubschemas.map((s) => (s as any).properties || {}))
+    const properties = Object.assign({}, ...concreteSubschemas.map((s) => (s as any).properties || {}))
     // TODO Validate the properties once merged?
-    _.assign(concreteSchema, {
+    Object.assign(concreteSchema, {
       type: 'object',
       required: _.isEmpty(requiredProperties) ? undefined : requiredProperties,
       properties: _.isEmpty(properties) ? undefined : properties
@@ -90,9 +90,9 @@ export function makeSchemaConcrete(
       // Handle error
     }
     const requiredProperties: string[] = [] // _.flatten(concreteSubschemas.map((s) => s.required || []))
-    const properties = _.assign({}, ...concreteSubschemas.map((s) => (s as any).properties || {}))
+    const properties = Object.assign({}, ...concreteSubschemas.map((s) => (s as any).properties || {}))
     // TODO Validate the properties once merged?
-    _.assign(concreteSchema, {
+    Object.assign(concreteSchema, {
       type: 'object',
       required: _.isEmpty(requiredProperties) ? undefined : requiredProperties,
       properties: _.isEmpty(properties) ? undefined : properties
@@ -113,15 +113,15 @@ export function makeSchemaConcrete(
       })
       if ((schema as any).entityType && (schema as any).storage) {
         // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
-        _.assign(subschema, _.pick(schema, ['entityType', 'storage']))
+        Object.assign(concreteSubschema, _.pick(schema, ['entityType', 'storage']))
       }
-      _.assign(concreteSchema, subschema)
+      Object.assign(concreteSchema, concreteSubschema)
     }
   } else {
     switch ((schema as any).type) {
       case 'object':
         {
-          _.assign(concreteSchema, _.clone(schema))
+          Object.assign(concreteSchema, _.clone(schema))
           if ((concreteSchema as any).properties) {
             (concreteSchema as any).properties = _.mapValues(
               (concreteSchema as any).properties,
@@ -132,22 +132,22 @@ export function makeSchemaConcrete(
         break
       case 'array':
         {
-          _.assign(concreteSchema, _.clone(schema))
+          Object.assign(concreteSchema, _.clone(schema))
           if ((concreteSchema as any).items) {
-            (concreteSchema as any).items = makeSchemaConcrete((concreteSchema as any).items,schemaType, namespace, {knownConcreteSubschemas})
+            (concreteSchema as any).items = makeSchemaConcrete((concreteSchema as any).items, schemaType, namespace, {knownConcreteSubschemas})
           }
         }
         break
       default:
-        _.assign(concreteSchema, schema)
+        Object.assign(concreteSchema, schema)
     }
   }
   return concreteSchema
 }
 
-type RelatedItemStorage = 'copy' | 'ref'
+export type RelatedItemStorage = 'copy' | 'ref'
 
-interface RelatedItem {
+export interface RelatedItem {
   path: string
   schema: ConcreteEntitySchema
   entityTypeName: string

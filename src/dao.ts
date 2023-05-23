@@ -10,16 +10,16 @@ import _ from 'lodash'
 import {Readable, Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
-import {Collection, Entity, EntityType, getEntityType} from './entity-types.js'
+import {Collection, Entity, EntityType, getEntityType, Id} from './entity-types.js'
 import {PersistenceError} from './errors.js'
 import {Client} from './postgresql/db.js'
-import makeRawDao, {FetchResults, fetchResultsIsStream} from './postgresql/raw-dao.js'
+import {QueryClause, queryClauseIsAnd, QueryOrder} from './queries.js'
+import makeRawDao, {FetchResults, fetchResultsIsArray, fetchResultsIsStream} from './postgresql/raw-dao.js'
 import {
   ConcreteEntitySchema,
   findPropertyInSchema,
   findRelatedItemsInSchema,
-  listTransientPropertiesOfSchema,
-  makeSchemaConcrete
+  listTransientPropertiesOfSchema
 } from './schemas.js'
 
 export type Dao = any
@@ -30,7 +30,7 @@ function hasKey<O extends object>(obj: O, key: PropertyKey): key is keyof O {
 
 type PathTransformer = (path: string) => {path: string, additionalOptions?: {[key: string]: any}}
 
-function mapPaths<T>(x: T, transformPath: PathTransformer): T {
+function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []): T {
   if (x == null) {
     return x
   }
@@ -40,6 +40,7 @@ function mapPaths<T>(x: T, transformPath: PathTransformer): T {
   if (!_.isObject(x)) {
     return x
   }
+  visited.push(x)
   const mappedObject: {[key: string]: any} = {}
   for (const key in x) {
     //if (Object.prototype.hasOwnProperty.call(object, key)) {
@@ -52,7 +53,9 @@ function mapPaths<T>(x: T, transformPath: PathTransformer): T {
           _.assign(mappedObject, additionalOptions)
         }
       } else {
-        mappedObject[key] = mapPaths(value, transformPath)
+        if (!visited.includes(value)) {
+          mappedObject[key] = mapPaths(value, transformPath, visited)
+        }
       }
     }
   }
@@ -174,10 +177,9 @@ const DEFAULT_FETCH_REFERENCE_ITEMS_OPTIONS: FetchReferenceItemsOptions = {
 const makeDao = async function(entityType: EntityType, options: DaoOptionsInput = DAO_DEFAULT_OPTIONS): Promise<Dao> {
   const {parentCollections, parentDaos, draftBatchId} = _.merge({}, DAO_DEFAULT_OPTIONS, options) as DaoOptions
 
-  const schema = entityType.schema
-  const concreteSchema = makeSchemaConcrete(schema)
+  const concreteSchema = entityType.concreteSchema
 
-  const transientPropertyPaths = listTransientPropertiesOfSchema(schema)
+  const transientPropertyPaths = listTransientPropertiesOfSchema(concreteSchema)
   const dbCallbacks = entityType.dbCallbacks || {}
 
   const draftEntityType = await getEntityType('draft')
@@ -208,7 +210,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
   return {
     entityType: entityType,
-    schema: schema,
     concreteSchema: concreteSchema,
     draftBatchId,
 
@@ -454,8 +455,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             })
             return {run: itemsOrStreamQuery.run, stream: itemsOrStreamQuery.stream.pipe(unwrapDrafts)}
             // return itemsOrStreamQuery.pipe(unwrapDrafts)
-          } else {
-            return itemsOrStreamQuery.map((item) => unwrapDraft(item))
+          } else if (fetchResultsIsArray(itemsOrStreamQuery)) {
+            return itemsOrStreamQuery.map((item: Entity) => unwrapDraft(item))
           }
         } else {
           return itemsOrStreamQuery
@@ -553,7 +554,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
       // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
       // more than once.
-      if (knownItems == null) {
+      if (knownItems[entityType.name] == null) {
         knownItems = {
           [entityType.name]: {}
         }
@@ -566,15 +567,15 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
       // Get all related item definitions in the current item's entity type.
       if (relatedItemDefinitions == null) {
-        relatedItemDefinitions = findRelatedItemsInSchema(entityType.schema, ['ref'])
+        relatedItemDefinitions = findRelatedItemsInSchema(entityType.concreteSchema, ['ref'])
       }
 
       // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).
       if (pathsToExpand) {
         pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
       }
-      const pointersToExpand = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
-        jsonPath({path, json: items, resultType: 'pointer'})
+      const pointersToExpand: string[] | null = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
+        jsonPath({path, json: items, resultType: 'pointer'}) as string[]
       ).flat()) : null
 
       // Get all related item references in the current item.
@@ -582,7 +583,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
       for (const relatedItemDefinition of relatedItemDefinitions) {
         const pathInItemsArray = relatedItemDefinition.path.replace(/^\$/, '$[*]')
-        let referencePointers = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'})
+        let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
         if (pointersToExpand) {
           referencePointers = _.intersection(referencePointers, pointersToExpand)
         }

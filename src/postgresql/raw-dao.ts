@@ -4,9 +4,28 @@ import {Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
 import * as db from './db.js'
-import {Entity, EntityType} from '../entity-types.js'
+import {Entity, EntityType, Id} from '../entity-types.js'
 import {PersistenceError} from '../errors.js'
-import '../queries.js'
+import {
+  PropertyPath,
+  QueryClause,
+  queryClauseIsAnd,
+  queryClauseIsFullTextSearch,
+  queryClauseIsNot,
+  queryClauseIsOr,
+  QueryExpression,
+  queryExpressionIsCoalesce,
+  queryExpressionIsConstant,
+  queryExpressionIsConstantList,
+  queryExpressionIsFullText,
+  queryExpressionIsFunction,
+  queryExpressionIsOperator,
+  queryExpressionIsPath,
+  queryExpressionIsRange,
+  QueryOrder,
+  SqlClause,
+  SqlExpression
+} from '../queries.js'
 
 const ALLOWED_OPERATORS = ['AND', 'OR', 'NOT']
 const SQL_TYPES = ['boolean']
@@ -26,7 +45,7 @@ export function fetchResultsIsStream(x: FetchResults | FetchResultsStream): x is
 }
 
 function sqlExpressionFromQueryExpression(expression: QueryExpression, parameterCount = 0): SqlExpression {
-  if (queryExpressionIsConstant(expression)) {
+  if (queryExpressionIsConstant(expression) || queryExpressionIsConstantList(expression)) {
     if (expression.constant == null) {
       return {
         expression: 'NULL',
@@ -126,7 +145,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const rangePart of expression.range) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression({constant: rangePart}, parameterCount)
+          sqlExpressionFromQueryExpression(rangePart, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }

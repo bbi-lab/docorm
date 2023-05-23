@@ -1,126 +1,124 @@
-type PropertyPath = string | string[]
+export type PropertyPath = string | string[]
 
-type Id = string | number
+export type QueryConstant = string | number | boolean | null
+export type QueryFullTextSearchContext = 'default'
+export type QueryPath = string
 
-type QueryConstant = string | number | boolean | null
-type QueryFullTextSearchContext = 'default'
-type QueryPath = string
-
-interface QueryCoalesceExpression {coalesce: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryConstantExpression {constant: QueryConstant}
-interface QueryConstantListExpression {constant: QueryConstant[]}
-interface QueryFullTextExpression {text: QueryFullTextSearchContext}
-interface QueryFunctionExpression {function: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryOperatorExpression {operator: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
-interface QueryPathExpression {path: QueryPath, sqlType?: string}
-interface QueryRangeExpression {range: [QueryConstant, QueryConstant]}
-type QueryExpression = QueryCoalesceExpression | QueryConstantExpression | QueryConstantListExpression
+export interface QueryCoalesceExpression {coalesce: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryConstantExpression {constant: QueryConstant}
+export interface QueryConstantListExpression {constant: QueryConstant[]}
+export interface QueryFullTextExpression {text: QueryFullTextSearchContext}
+export interface QueryFunctionExpression {function: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryOperatorExpression {operator: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
+export interface QueryPathExpression {path: QueryPath, sqlType?: string}
+export interface QueryRangeExpression {range: [QueryConstantExpression, QueryConstantExpression]}
+export type QueryExpression = QueryCoalesceExpression | QueryConstantExpression | QueryConstantListExpression
     | QueryFullTextExpression | QueryFunctionExpression | QueryOperatorExpression | QueryPathExpression
     | QueryRangeExpression
 
-interface QueryBetweenClause {
+export interface QueryBetweenClause {
   operator: 'between',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryRangeExpression
 }
 
-interface QueryComparisonClause {
+export interface QueryComparisonClause {
   operator?: '=' | '<' | '>' | '<=' | '>=' | '!=',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryConstantExpression | QueryPathExpression
 }
 
-interface QueryInClause {
+export interface QueryInClause {
   operator: 'in',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryConstantListExpression
 }
 
-interface QueryFullTextSearchClause {
+export interface QueryFullTextSearchClause {
   operator: 'contains'
   l: QueryFullTextExpression
   r: QueryConstantExpression | QueryPathExpression
 }
 
-type QuerySimpleClause = QueryBetweenClause | QueryComparisonClause | QueryInClause | QueryFullTextSearchClause
+export type QuerySimpleClause = QueryBetweenClause | QueryComparisonClause | QueryInClause | QueryFullTextSearchClause
 
-interface QueryAndClause {
+export interface QueryAndClause {
   and: QueryClause[]
 }
 
-interface QueryOrClause {
+export interface QueryOrClause {
   or: QueryClause[]
 }
 
-interface QueryNotClause {
+export interface QueryNotClause {
   not: QueryClause
 }
 
-type QueryClause = QuerySimpleClause | QueryAndClause | QueryOrClause | QueryNotClause | true | false
+export type QueryClause = QuerySimpleClause | QueryAndClause | QueryOrClause | QueryNotClause | true | false
 
-type QueryOrderProperty = QueryPathExpression
-type QueryOrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC'
-type QueryOrderElement = QueryOrderProperty | [QueryOrderProperty, QueryOrderDirection]
-type QueryOrder = QueryOrderElement[]
+export type QueryOrderProperty = QueryPathExpression
+export type QueryOrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC'
+export type QueryOrderElement = QueryOrderProperty | [QueryOrderProperty, QueryOrderDirection]
+export type QueryOrder = QueryOrderElement[]
 
-interface SqlExpression {
+export interface SqlExpression {
   expression: string,
   parameterValues: any[]
 }
 
-interface SqlClause {
+export interface SqlClause {
   sqlClause: string | null,
   parameterValues: any[]
 }
 
-function queryExpressionIsCoalesce(expression: QueryExpression): expression is QueryCoalesceExpression {
+export function queryExpressionIsCoalesce(expression: QueryExpression): expression is QueryCoalesceExpression {
   return ((expression as QueryCoalesceExpression).coalesce !== undefined)
 }
 
-function queryExpressionIsConstant(expression: QueryExpression): expression is QueryConstantExpression {
+export function queryExpressionIsConstant(expression: QueryExpression): expression is QueryConstantExpression {
   return ((expression as QueryConstantExpression).constant !== undefined)
     && !Array.isArray((expression as QueryConstantExpression).constant)
 }
 
-function queryExpressionIsConstantList(expression: QueryExpression): expression is QueryConstantListExpression {
+export function queryExpressionIsConstantList(expression: QueryExpression): expression is QueryConstantListExpression {
   return ((expression as QueryConstantExpression).constant !== undefined)
     && Array.isArray((expression as QueryConstantExpression).constant)
 }
 
-function queryExpressionIsFunction(expression: QueryExpression): expression is QueryFunctionExpression {
+export function queryExpressionIsFunction(expression: QueryExpression): expression is QueryFunctionExpression {
   return ((expression as QueryFunctionExpression).function !== undefined)
 }
 
-function queryExpressionIsOperator(expression: QueryExpression): expression is QueryOperatorExpression {
+export function queryExpressionIsOperator(expression: QueryExpression): expression is QueryOperatorExpression {
   return ((expression as QueryOperatorExpression).operator !== undefined)
 }
 
-function queryExpressionIsFullText(expression: QueryExpression): expression is QueryFullTextExpression {
+export function queryExpressionIsFullText(expression: QueryExpression): expression is QueryFullTextExpression {
   return ((expression as QueryFullTextExpression).text == 'default')
 }
 
-function queryExpressionIsPath(expression: QueryExpression): expression is QueryPathExpression {
+export function queryExpressionIsPath(expression: QueryExpression): expression is QueryPathExpression {
   return (expression as QueryPathExpression).path !== undefined
 }
 
-function queryExpressionIsRange(expression: QueryExpression): expression is QueryRangeExpression {
+export function queryExpressionIsRange(expression: QueryExpression): expression is QueryRangeExpression {
   return (expression as QueryRangeExpression).range !== undefined
 }
 
-function queryClauseIsBetween(clause: QueryClause): clause is QueryBetweenClause {
+export function queryClauseIsBetween(clause: QueryClause): clause is QueryBetweenClause {
   return (clause as QueryBetweenClause).operator == 'between'
 }
 
-function queryClauseIsComparisonn(clause: QueryClause): clause is QueryComparisonClause {
+export function queryClauseIsComparisonn(clause: QueryClause): clause is QueryComparisonClause {
   const operator = (clause as QueryComparisonClause).operator
   return !queryClauseIsFullTextSearch(clause) && [undefined, '=', '<', '>', '<=', '>=', '!='].includes(operator)
 }
 
-function queryClauseIsIn(clause: QueryClause): clause is QueryInClause {
+export function queryClauseIsIn(clause: QueryClause): clause is QueryInClause {
   return (clause as QueryInClause).operator == 'in'
 }
 
-function queryClauseIsFullTextSearch(clause: QueryClause): clause is QueryFullTextSearchClause {
+export function queryClauseIsFullTextSearch(clause: QueryClause): clause is QueryFullTextSearchClause {
   const l = (clause as QueryFullTextSearchClause).l
   const r = (clause as QueryFullTextSearchClause).r
   return (clause as QueryFullTextSearchClause).operator == 'contains'
@@ -128,19 +126,19 @@ function queryClauseIsFullTextSearch(clause: QueryClause): clause is QueryFullTe
       && (queryExpressionIsConstant(r) || queryExpressionIsPath(r))
 }
 
-function queryClauseIsSimple(clause: QueryClause): clause is QuerySimpleClause {
+export function queryClauseIsSimple(clause: QueryClause): clause is QuerySimpleClause {
   return queryClauseIsBetween(clause) || queryClauseIsComparisonn(clause) || queryClauseIsIn(clause)
       || queryClauseIsFullTextSearch(clause)
 }
 
-function queryClauseIsAnd(clause: QueryClause): clause is QueryAndClause {
+export function queryClauseIsAnd(clause: QueryClause): clause is QueryAndClause {
   return (clause as QueryAndClause).and != null
 }
 
-function queryClauseIsOr(clause: QueryClause): clause is QueryOrClause {
+export function queryClauseIsOr(clause: QueryClause): clause is QueryOrClause {
   return (clause as QueryOrClause).or != null
 }
 
-function queryClauseIsNot(clause: QueryClause): clause is QueryNotClause {
+export function queryClauseIsNot(clause: QueryClause): clause is QueryNotClause {
   return (clause as QueryNotClause).not != null
 }

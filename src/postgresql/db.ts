@@ -6,11 +6,11 @@
 
 import {Mutex} from 'async-mutex'
 import cls from 'cls-hooked'
-import {Pool, PoolClient} from 'pg'
+import pg from 'pg'
 import QueryStream from 'pg-query-stream'
 import pgpFactory from 'pg-promise'
 
-import config from '../config.js'
+import {docorm} from '../index.js'
 import logger from '../logger.js'
 import {PersistenceError} from '../errors.js'
 
@@ -21,10 +21,10 @@ import {PersistenceError} from '../errors.js'
 // - PGDATABASE default: process.env.user
 // - PGPASSWORD default: null
 
-export type Client = PoolClient & {lastQuery?: any[], numQueriesInTransaction?: number}
+export type Client = pg.PoolClient & {lastQuery?: any[], numQueriesInTransaction?: number}
 
 /** node-postgres connection pool. */
-let pool: Pool | null = null
+let pool: pg.Pool | null = null
 
 /** pg-promise database factory. */
 let pgp: ReturnType<typeof pgpFactory> | null
@@ -38,10 +38,10 @@ const getClientMutex = new Mutex()
 export function initDb() {
   // node-postgres setup
 
-  pool = new Pool({
-    ssl: config.postgresql.ssl ?
+  pool = new pg.Pool({
+    ssl: docorm.config.postgresql.ssl ?
         {
-          rejectUnauthorized: !config.postgresql.allowUnknownSslCertificate
+          rejectUnauthorized: !docorm.config.postgresql.allowUnknownSslCertificate
         }
         : undefined,
     max: 100
@@ -58,23 +58,25 @@ export function initDb() {
   // replacing getClient below with getTx (where transactions are needed) and getTask (where they are
   // not).
 
+  // TODO Since we have already set up pg.Pool, this results in a warning about duplicate database objects.
+
   const pgp = pgpFactory({capSQL: true})
   const pgpDb = pgp({
-    host: config.postgresql.host,
-    port: config.postgresql.port,
-    database: config.postgresql.database,
-    user: config.postgresql.username,
-    password: config.postgresql.password,
-    ssl: config.postgresql.ssl ?
-        {rejectUnauthorized: !config.postgresql.allowUnknownSslCertificate}
+    host: docorm.config.postgresql.host,
+    port: docorm.config.postgresql.port,
+    database: docorm.config.postgresql.database,
+    user: docorm.config.postgresql.username,
+    password: docorm.config.postgresql.password,
+    ssl: docorm.config.postgresql.ssl ?
+        {rejectUnauthorized: !docorm.config.postgresql.allowUnknownSslCertificate}
         : undefined,
     max: 20
   })
 }
 
 function getClsNamespace() {
-  const clsNamespace = config.clsNamespaceName ? cls.getNamespace(config.clsNamespaceName) : null
-  const operationId = (config.operationIdKey ? clsNamespace?.get(config.operationIdKey) : undefined) as string | undefined
+  const clsNamespace = docorm.config.clsNamespaceName ? cls.getNamespace(docorm.config.clsNamespaceName) : null
+  const operationId = (docorm.config.operationIdKey ? clsNamespace?.get(docorm.config.operationIdKey) : undefined) as string | undefined
   return {clsNamespace, operationId}
 }
 
@@ -181,10 +183,10 @@ export async function commit(client?: Client) {
   if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
-  if (!client) {
+  /*if (!client) {
     throw new PersistenceError('No database client when attempting to commit changes.', {operationId})
-  }
-  if (client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
+  }*/
+  if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
     logger().info('Committed changes', {operationId})
     client.numQueriesInTransaction = 0
@@ -198,12 +200,12 @@ export async function commitAndBeginTransaction(client: Client | null = null) {
  if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
-  if (!client) {
+  /*if (!client) {
     throw new PersistenceError(
       'No database client when attempting to commit changes and begin a new transaction.',
       {operationId}
     )
-  }
+  }*/
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
     logger().info('Committed changes', {operationId})
@@ -220,9 +222,11 @@ export async function rollback(client: Client | null = null) {
   if (useClientFromCls && clsNamespace) {
     client = clsNamespace.get('client')
   }
+  /*
   if (!client) {
     throw new PersistenceError('No database client when attempting to roll changes back.', {operationId})
   }
+  */
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('ROLLBACK')
     logger().info(`Rolled back transaction`, {operationId})

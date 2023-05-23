@@ -16,7 +16,7 @@ export interface DocOrmConfigInput {
   }
 }
 
-interface DocOrmConfig extends DocOrmConfigInput {
+export interface DocOrmConfig extends DocOrmConfigInput {
   logger?: winston.Logger,
   clsNamespaceName?: string,
   operationIdKey?: string,
@@ -31,7 +31,7 @@ interface DocOrmConfig extends DocOrmConfigInput {
   }
 }
 
-const DEFAULT_DOC_ORM_CONFIG = {
+export const DEFAULT_DOC_ORM_CONFIG = {
   postgresql: {
     host: 'localhost',
     port: 5432,
@@ -41,11 +41,3 @@ const DEFAULT_DOC_ORM_CONFIG = {
     ssl: true
   }
 }
-
-let config: DocOrmConfig = {...DEFAULT_DOC_ORM_CONFIG}
-
-export function setConfig(newConfig: DocOrmConfigInput) {
-  config = _.merge({}, DEFAULT_DOC_ORM_CONFIG, newConfig)
-}
-
-export default config
