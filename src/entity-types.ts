@@ -254,10 +254,30 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
         return target.value[property as keyof T]
       }
       return undefined
+    },
+    ownKeys: (target) => Object.keys(target),
+    getOwnPropertyDescriptor: (target, property) => {
+      if (property == '_isProxy') {
+        return {enumerable: false, value: true}
+      }
+      if (property == '_loaded') {
+        return {enumerable: false, value: target.loaded}
+      }
+      /*
+      if (!target.loaded) {
+        target.value = load()
+        target.loaded = true
+      }
+      */
+      if (target.value) {
+        return Object.getOwnPropertyDescriptor(target.value, property)
+      }
+      return undefined
     }
   }) as T
 }
 
+/*
 function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T, parentEntityType: EntityType | undefined, callbacksProperty: string): T {
   const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
   return new Proxy(target, {
@@ -288,6 +308,7 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
     }
   }) as T
 }
+*/
 
 export function makeUnproxiedEntityType(definition: EntityTypeDefinition): EntityType {
   const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
