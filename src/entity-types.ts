@@ -100,10 +100,7 @@ export interface EntityTypeDefinition {
   commonTitle: string
   title: string
   allowsDrafts?: boolean
-  schema: {
-    name: string
-    currentVersion: string
-  }
+  schemaPath: string[],
   table?: string
   import?: {
     propertyMappings?: []
@@ -148,6 +145,7 @@ const ENTITY_TYPE_KEYS = [
   'title',
   'allowsDrafts',
   'schema',
+  'schemaPath',
   'table',
   'import',
   'dbCallbacks',
@@ -292,9 +290,14 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
 
 export function makeUnproxiedEntityType(definition: EntityTypeDefinition): EntityType {
   const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
+  const schema = getSchema(definition.schemaPath, 'model')
+  if (!schema) {
+    throw new InternalError(`Entity type "${definition.name} has no schema.`)
+  }
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
     abstract: definition.abstract || false,
+    schema: makeSchemaConcrete(schema, 'model'),
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
       definition.dbCallbacks || {}
@@ -304,17 +307,6 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
       definition.restCallbacks || {}
     )
   })
-  /*
-  entityType.parent = parentEntityType
-  entityType.dbCallbacks = makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks')
-  entityType.restCallbacks = makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
-  */
-  const schema = getSchema([definition.schema.name, definition.schema.currentVersion], 'model')
-  if (!schema) {
-    throw new InternalError(`Entity type "${entityType.name} has no schema.`)
-  }
-  // TODO Add support for namespaced entity schemas.
-  entityType.schema = makeSchemaConcrete(schema, 'model')
   entityTypes[entityType.name] = entityType
   return entityType
 }
