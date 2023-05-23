@@ -138,6 +138,26 @@ export interface EntityType extends Omit<EntityTypeDefinition, 'parent' | 'abstr
   schema: ConcreteEntitySchema
 }
 
+// TODO Extract this from the actual Typescript interface somehow.
+const ENTITY_TYPE_KEYS = [
+  'parent',
+  'name',
+  'abstract',
+  'restCollection',
+  'commonTitle',
+  'title',
+  'allowsDrafts',
+  'schema',
+  'table',
+  'import',
+  'dbCallbacks',
+  'history',
+  'derivedProperties',
+  'restCallbacks',
+  'extraCollectionActions',
+  'extraInstanceActions'
+]
+
 const entityTypes: {[name: string]: EntityType} = {}
 
 export async function registerEntityTypes(dirPath: string) {
@@ -214,11 +234,10 @@ interface ObjectProxyTarget<T> {
 function makeObjectProxy<T extends object>(load: () => T | undefined): T {
   const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
   return new Proxy(target, {
-    get: (target, property, receiver) => {
-      if (property == 'then') {
-        // TODO What is the actual type of onFulfilled in Promise.prototype.then?
-        return (onFulfilled: any) => onFulfilled(receiver)
-      }
+    has: (target, property) => {
+      return [...ENTITY_TYPE_KEYS, '_isProxy', '_loaded'].includes(property.toString())
+    },
+    get: (target, property) => {
       if (property == '_isProxy') {
         return true
       }
@@ -240,11 +259,10 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
 function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T, parentEntityType: EntityType | undefined, callbacksProperty: string): T {
   const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
   return new Proxy(target, {
-    get: (target, property, receiver) => {
-      if (property == 'then') {
-        // TODO What is the actual type of onFulfilled in Promise.prototype.then?
-        return (onFulfilled: any) => onFulfilled(receiver)
-      }
+    has: (target, property) => {
+      return [...ENTITY_TYPE_KEYS, '_isProxy', '_loaded'].includes(property.toString())
+    },
+    get: (target, property) => {
       if (property == '_isProxy') {
         return true
       }
