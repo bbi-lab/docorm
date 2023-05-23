@@ -238,6 +238,9 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
       return [...ENTITY_TYPE_KEYS, '_isProxy', '_loaded'].includes(property.toString())
     },
     get: (target, property) => {
+      if (property == 'then') {
+        return undefined
+      }
       if (property == '_isProxy') {
         return true
       }
@@ -262,7 +265,10 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
     has: (target, property) => {
       return [...ENTITY_TYPE_KEYS, '_isProxy', '_loaded'].includes(property.toString())
     },
-    get: (target, property) => {
+    get: (target, property, receiver) => {
+      if (property == 'then') {
+        return undefined
+      }
       if (property == '_isProxy') {
         return true
       }
