@@ -31,7 +31,7 @@ function hasKey<O extends object>(obj: O, key: PropertyKey): key is keyof O {
 
 type PathTransformer = (path: string) => {path: string, additionalOptions?: {[key: string]: any}}
 
-function mapPaths<T>(x: T, transformPath: PathTransformer): T {
+function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []): T {
   if (x == null) {
     return x
   }
@@ -41,6 +41,7 @@ function mapPaths<T>(x: T, transformPath: PathTransformer): T {
   if (!_.isObject(x)) {
     return x
   }
+  visited.push(x)
   const mappedObject: {[key: string]: any} = {}
   for (const key in x) {
     //if (Object.prototype.hasOwnProperty.call(object, key)) {
@@ -53,7 +54,9 @@ function mapPaths<T>(x: T, transformPath: PathTransformer): T {
           _.assign(mappedObject, additionalOptions)
         }
       } else {
-        mappedObject[key] = mapPaths(value, transformPath)
+        if (!visited.includes(value)) {
+          mappedObject[key] = mapPaths(value, transformPath, visited)
+        }
       }
     }
   }
@@ -209,7 +212,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
   return {
     entityType: entityType,
     schema: schema,
-    concreteSchema: concreteSchema,
     draftBatchId,
 
     /**
@@ -244,7 +246,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return items.length
       } else {
         if (query != undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
         }
         if (query != undefined && query !== false) {
           if (draftBatchId) {
@@ -315,7 +317,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return stream ? Readable.from(results) : results
       } else {
         if (query !== undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
         }
         if (query !== undefined && query !== false) {
           if (draftBatchId) {
@@ -337,7 +339,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
@@ -430,7 +432,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
