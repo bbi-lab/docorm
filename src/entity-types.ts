@@ -281,7 +281,7 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
   entityType.dbCallbacks = makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks')
   entityType.restCallbacks = makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
   */
-  const schema = getSchema(`${definition.schema.name}.${definition.schema.currentVersion}`, 'model')
+  const schema = getSchema([definition.schema.name, definition.schema.currentVersion], 'model')
   if (!schema) {
     throw new InternalError(`Entity type "${entityType.name} has no schema.`)
   }
