@@ -31,7 +31,7 @@ export async function registerSchemaDirectory(path: string, schemaType: SchemaTy
 export function getSchema(path: SchemaPath, schemaType: SchemaType, namespace: string | undefined = undefined): EntitySchema | null {
   const pathArr = _.isArray(path) ? path : path.split('.')
   for (const dir of schemaDirectories.filter((d) => d.schemaType == schemaType && d.namespace == namespace)) {
-    const schema = _.get(dir.schemas, [schemaType, ...pathArr], null)
+    const schema = _.get(dir.schemas, pathArr, null)
     if (schema) {
       return schema
     }

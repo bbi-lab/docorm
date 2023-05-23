@@ -236,11 +236,15 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
 function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T, parentEntityType: EntityType | undefined, callbacksProperty: string): T {
   const target: ObjectProxyTarget<T> = {value: undefined, loaded: false}
   return new Proxy(target, {
-    get: (target, prop) => {
-      if (prop == '_isProxy') {
+    get: (target, property, receiver) => {
+      if (property == 'then') {
+        // TODO What is the actual type of onFulfilled in Promise.prototype.then?
+        return (onFulfilled: any) => onFulfilled(receiver)
+      }
+      if (property == '_isProxy') {
         return true
       }
-      if (prop == '_loaded') {
+      if (property == '_loaded') {
         return target.loaded
       }
       if (!target.loaded) {
@@ -251,7 +255,7 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
         target.loaded = true
       }
       if (target.value) {
-        return target.value[prop as keyof T]
+        return target.value[property as keyof T]
       }
       return undefined
     }
