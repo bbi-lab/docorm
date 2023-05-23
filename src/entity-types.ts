@@ -258,12 +258,11 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
   }) as T
 }
 
-export async function makeEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
-  const parentEntityType: EntityType | undefined = definition.parent ? makeParentProxy(definition.parent) : undefined
+export async function makeUnproxiedEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
+  const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
-    parent: undefined,
-    abstract: definition.abstract || false
-    /*
+    parent: parentEntityType,
+    abstract: definition.abstract || false,
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
       definition.dbCallbacks || {}
@@ -272,11 +271,12 @@ export async function makeEntityType(definition: EntityTypeDefinition): Promise<
       parentEntityType?.restCallbacks || {},
       definition.restCallbacks || {}
     )
-    */
   })
+  /*
   entityType.parent = parentEntityType
   entityType.dbCallbacks = makeMergedCallbacksProxy(definition.dbCallbacks, parentEntityType, 'dbCallbacks')
   entityType.restCallbacks = makeMergedCallbacksProxy(definition.restCallbacks, parentEntityType, 'restCallbacks')
+  */
   const schema = getSchema(`${definition.schema.name}.${definition.schema.currentVersion}`, 'model')
   if (!schema) {
     throw new InternalError(`Entity type "${entityType.name} has no schema.`)
@@ -286,6 +286,15 @@ export async function makeEntityType(definition: EntityTypeDefinition): Promise<
   entityType.schema = makeSchemaConcrete(schema, 'model')
   entityTypes[entityType.name] = entityType
   return entityType
+}
+
+export async function makeEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
+  const parentEntityType: EntityType | undefined = definition.parent ? makeParentProxy(definition.parent) : undefined
+  if ((parentEntityType as any)?._isProxy) {
+    return makeObjectProxy(() => makeUnproxiedEntityType(definition))
+  } else {
+    return await makeUnproxiedEntityType(definition)
+  }
 }
 
 export async function calculateDerivedProperties(entityType: EntityType, item: Entity) {
