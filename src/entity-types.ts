@@ -226,8 +226,6 @@ function makeObjectProxy<T extends object>(load: () => T | undefined): T {
 
 export async function makeEntityType(definition: EntityTypeDefinition): Promise<EntityType> {
   const parentEntityType: EntityType | undefined = definition.parent ? makeParentProxy(definition.parent) : undefined
-  // import(`../model/entity-types/${options.parent}`) :
-  const x = parentEntityType?.dbCallbacks || {}
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
     abstract: definition.abstract || false,
