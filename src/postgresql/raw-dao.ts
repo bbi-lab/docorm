@@ -16,6 +16,7 @@ import {
   QueryExpression,
   queryExpressionIsCoalesce,
   queryExpressionIsConstant,
+  queryExpressionIsConstantList,
   queryExpressionIsFullText,
   queryExpressionIsFunction,
   queryExpressionIsOperator,
@@ -44,7 +45,7 @@ export function fetchResultsIsStream(x: FetchResults | FetchResultsStream): x is
 }
 
 function sqlExpressionFromQueryExpression(expression: QueryExpression, parameterCount = 0): SqlExpression {
-  if (queryExpressionIsConstant(expression)) {
+  if (queryExpressionIsConstant(expression) || queryExpressionIsConstantList(expression)) {
     if (expression.constant == null) {
       return {
         expression: 'NULL',
