@@ -144,7 +144,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const rangePart of expression.range) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression({constant: rangePart}, parameterCount)
+          sqlExpressionFromQueryExpression(rangePart, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }

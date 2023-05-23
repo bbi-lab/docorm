@@ -11,7 +11,7 @@ export interface QueryFullTextExpression {text: QueryFullTextSearchContext}
 export interface QueryFunctionExpression {function: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
 export interface QueryOperatorExpression {operator: string, parameters: (QueryConstantExpression | QueryPathExpression)[]}
 export interface QueryPathExpression {path: QueryPath, sqlType?: string}
-export interface QueryRangeExpression {range: [QueryConstant, QueryConstant]}
+export interface QueryRangeExpression {range: [QueryConstantExpression, QueryConstantExpression]}
 export type QueryExpression = QueryCoalesceExpression | QueryConstantExpression | QueryConstantListExpression
     | QueryFullTextExpression | QueryFunctionExpression | QueryOperatorExpression | QueryPathExpression
     | QueryRangeExpression
