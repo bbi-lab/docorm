@@ -313,7 +313,6 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
   if (!schema) {
     throw new InternalError(`Entity type "${entityType.name} has no schema.`)
   }
-  const concreteSchema = makeSchemaConcrete(schema, 'model')
   // TODO Add support for namespaced entity schemas.
   entityType.schema = makeSchemaConcrete(schema, 'model')
   entityTypes[entityType.name] = entityType

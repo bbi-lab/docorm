@@ -134,7 +134,7 @@ export function makeSchemaConcrete(
         {
           Object.assign(concreteSchema, _.clone(schema))
           if ((concreteSchema as any).items) {
-            (concreteSchema as any).items = makeSchemaConcrete((concreteSchema as any).items,schemaType, namespace, {knownConcreteSubschemas})
+            (concreteSchema as any).items = makeSchemaConcrete((concreteSchema as any).items, schemaType, namespace, {knownConcreteSubschemas})
           }
         }
         break

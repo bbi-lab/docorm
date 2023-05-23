@@ -113,7 +113,6 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
 
           // Using file:// makes this work with Windows paths that begin with drive letters.
           const {default: defaultExport} = await import(`file://${fullPath}`)
-          console.log('IMPORTED ${fullPath} to ${submoduleName}')
           result[submoduleName] = defaultExport
         }
       }

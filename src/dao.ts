@@ -176,7 +176,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
   const {parentCollections, parentDaos, draftBatchId} = _.merge({}, DAO_DEFAULT_OPTIONS, options) as DaoOptions
 
   const schema = entityType.schema
-  const concreteSchema = makeSchemaConcrete(schema)
 
   const transientPropertyPaths = listTransientPropertiesOfSchema(schema)
   const dbCallbacks = entityType.dbCallbacks || {}
