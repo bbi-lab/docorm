@@ -132,7 +132,8 @@ export interface EntityTypeDefinition {
 export interface EntityType extends Omit<EntityTypeDefinition, 'parent' | 'abstract' | 'schema'> {
   parent?: EntityType
   abstract: boolean
-  schema: ConcreteEntitySchema
+  schema: EntitySchema
+  concreteSchema: ConcreteEntitySchema
 }
 
 // TODO Extract this from the actual Typescript interface somehow.
@@ -297,7 +298,8 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
     abstract: definition.abstract || false,
-    schema: makeSchemaConcrete(schema, 'model'),
+    schema,
+    concreteSchema: makeSchemaConcrete(schema, 'model'),
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
       definition.dbCallbacks || {}

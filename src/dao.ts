@@ -19,8 +19,7 @@ import {
   ConcreteEntitySchema,
   findPropertyInSchema,
   findRelatedItemsInSchema,
-  listTransientPropertiesOfSchema,
-  makeSchemaConcrete
+  listTransientPropertiesOfSchema
 } from './schemas.js'
 
 export type Dao = any
@@ -178,9 +177,9 @@ const DEFAULT_FETCH_REFERENCE_ITEMS_OPTIONS: FetchReferenceItemsOptions = {
 const makeDao = async function(entityType: EntityType, options: DaoOptionsInput = DAO_DEFAULT_OPTIONS): Promise<Dao> {
   const {parentCollections, parentDaos, draftBatchId} = _.merge({}, DAO_DEFAULT_OPTIONS, options) as DaoOptions
 
-  const schema = entityType.schema
+  const concreteSchema = entityType.concreteSchema
 
-  const transientPropertyPaths = listTransientPropertiesOfSchema(schema)
+  const transientPropertyPaths = listTransientPropertiesOfSchema(concreteSchema)
   const dbCallbacks = entityType.dbCallbacks || {}
 
   const draftEntityType = await getEntityType('draft')
@@ -211,7 +210,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
   return {
     entityType: entityType,
-    schema: schema,
+    concreteSchema: concreteSchema,
     draftBatchId,
 
     /**
@@ -246,7 +245,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return items.length
       } else {
         if (query != undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
         }
         if (query != undefined && query !== false) {
           if (draftBatchId) {
@@ -317,7 +316,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return stream ? Readable.from(results) : results
       } else {
         if (query !== undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
         }
         if (query !== undefined && query !== false) {
           if (draftBatchId) {
@@ -339,7 +338,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
@@ -432,7 +431,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
