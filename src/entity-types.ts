@@ -20,7 +20,10 @@ export interface Collection {
   name: string,
   subpath: string,
   entityType: EntityTypeName,
-  persistence: 'id-list' | 'subdocument'
+  // TODO Replace inverse-ref and ref with 'relationship,' and use the schema to determine how the relationship is stored.
+  persistence: 'inverse-ref' | 'ref' | 'subdocument',
+  // TODO Use the foreign key path from the schema.
+  foreignKeyPath?: string
 }
 
 export interface User {

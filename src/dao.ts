@@ -281,7 +281,27 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         let results: Entity[] = []
         switch (collection.persistence) {
-          case 'id-list': {
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              results = [] // TODO Or error?
+            } else {
+              const collectionMembers = await rawDao.fetch({
+                l: {path: collection.foreignKeyPath}, r: {constant: parent._id}
+              }) as Entity[]
+              // TODO Implement collection filtering by query
+              results = collectionMembers.filter((x) => false)
+              // TODO Apply order
+              // TODO Apply limit
+            }
+          }
+            break
+          case 'ref': {
             // TODO Optimize by fetching only the path we need from the parent. Do the same in other fetch methods.
             const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
             if (!parent) {
@@ -298,7 +318,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             }
           }
             break
-          case 'subdocument': {
+            case 'subdocument': {
             const parent = await _.last(parentDaos)
                 .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
             if (!parent) {
@@ -392,7 +412,25 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list': {
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              const collectionMembers = await rawDao.fetch({
+                l: {path: collection.foreignKeyPath}, r: {constant: parent._id}
+              }) as Entity[]
+              return collectionMembers
+              // TODO Apply order
+              // TODO Apply limit
+            }
+          }
+          case 'ref': {
             const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
             if (!parent) {
               return [] // TODO Or error?
@@ -478,9 +516,14 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list':
+          case 'inverse-ref':
             // TODO
-            return null
+            items = []
+            break
+          case 'ref':
+            // TODO
+            items = []
+            break
           case 'subdocument': {
             // TODO Revisit
             const parent = await _.last(parentDaos)
@@ -510,7 +553,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list':
+          case 'inverse-ref':
+            // TODO
+            return null
+          case 'ref':
             // TODO
             return null
           case 'subdocument': {
@@ -567,27 +613,51 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         jsonPath({path, json: items, resultType: 'pointer'}) as string[]
       ).flat()) : null
 
+      this._fetchForwardReferences(items, pointersToExpand, {
+        client,
+        entityTypes,
+        daos,
+        knownItems
+      })
+
+      this._fetchInverseReferences(items, pointersToExpand, {
+        client,
+        entityTypes,
+        daos,
+        knownItems
+      })
+    },
+
+    _fetchForwardReferences: async function(items: Entity[], relationships: Relationship[], pointersToExpand?: string[], options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS) {
+      let {
+        client,
+        entityTypes,
+        daos,
+        knownItems
+      } = _.merge(options, DEFAULT_FETCH_RELATIONSHIPS_OPTIONS)
+
       // Get all related item references in the current item.
       // Expand any references that can be satisfied with items already loaded, and collect a list of the rest.
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
-      for (const relatedItemDefinition of relatedItemDefinitions) {
-        const pathInItemsArray = relatedItemDefinition.path.replace(/^\$/, '$[*]')
+      for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
+        const pathInItemsArray = relationship.path.replace(/^\$/, '$[*]')
         let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
         if (pointersToExpand) {
           referencePointers = _.intersection(referencePointers, pointersToExpand)
         }
         for (const referencePointer of referencePointers) {
           const reference = jsonPointer.get(items, referencePointer)
+          // TODO Handle collections with forward references, where reference has the form {type: 'array', items: {storage: 'ref'}}.
           if (reference && reference.$ref) {
-            const knownItem = _.get(knownItems, [relatedItemDefinition.entityTypeName, reference.$ref])
+            const knownItem = _.get(knownItems, [relationship.entityTypeName, reference.$ref])
             if (knownItem) {
               // TODO Ensure that _.set works with all simple JSONPaths returned by JSONPath({resultType: 'path'}).
               // Alternatively, use JSON pointers instead.
               _.set(items, referencePointer, knownItem)
             } else {
-              itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName] =
-                  itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName] || []
-              itemReferencesByEntityTypeName[relatedItemDefinition.entityTypeName].push({
+              itemReferencesByEntityTypeName[relationship.entityTypeName] =
+                  itemReferencesByEntityTypeName[relationship.entityTypeName] || []
+              itemReferencesByEntityTypeName[relationship.entityTypeName].push({
                 pointer: referencePointer,
                 id: reference.$ref
               })
@@ -723,6 +793,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       }
     },
 
+    // TODO For collections, what about adding an existing item to the collection? Here we only support creating a new
+    // item in the collection.
     insert: async function(item: Entity, parentIds = [], {client = null} = {}) {
       item = this.sanitizeItem(item)
       if (!item._id) {
@@ -734,7 +806,25 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list': {
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              // TODO Support an auto-incremented order property.
+              _.set(item, collection.foreignKeyPath, {$ref: parent._id})
+              const wrappedItem = draftBatchId ? wrapDraft(item) : item
+              const insertResult = await rawDao.insert(wrappedItem, {client})
+              item = draftBatchId ? unwrapDraft(insertResult) : insertResult
+            }
+          }
+            break
+          case 'ref': {
             const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
             if (!parent) {
               return null // TODO Error
@@ -820,7 +910,26 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list': {
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              // TODO First check that the item belongs to the collection.
+              // TODO Support an auto-incremented order property.
+              _.set(item, collection.foreignKeyPath, {$ref: parent._id})
+              const wrappedItem = draftBatchId ? wrapDraft(item) : item
+              const updateResult = await rawDao.update(wrappedItem, {client})
+              item = draftBatchId ? unwrapDraft(updateResult) : updateResult
+            }
+          }
+            break
+          case 'ref': {
             // TODO First check that the item belongs to the collection.
             const wrappedItem = draftBatchId ? wrapDraft(item) : item
             const updateResult = await rawDao.update(wrappedItem, {client})
@@ -891,7 +1000,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list':
+          case 'inverse-ref':
+            // TODO
+            break
+          case 'ref':
             // TODO
             break
           case 'subdocument': {
@@ -941,7 +1053,29 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'id-list': {
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return null // TODO Error
+            } else {
+              // TODO First check that the item belongs to the collection.
+              // TODO Support an auto-incremented order property, which may be decremented for following siblings.
+              for (const callback of dbCallbacks.beforeDelete || []) {
+                await callback(id)
+              }
+              await rawDao.deleteOneById(id, {client})
+              for (const callback of dbCallbacks.afterDelete || []) {
+                await callback(id)
+              }
+            }
+          }
+            break
+          case 'ref': {
             // TODO First check that the item belongs to the collection.
             for (const callback of dbCallbacks.beforeDelete || []) {
               await callback(id)
@@ -950,6 +1084,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             for (const callback of dbCallbacks.afterDelete || []) {
               await callback(id)
             }
+            // TODO Delete the reference from the parent.
             break
           }
           case 'subdocument': {
