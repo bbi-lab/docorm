@@ -554,8 +554,9 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
           case 'inverse-ref':
-            // TODO
-            return null
+            // TODO Ensure that the item belongs to the parent's collection.
+            const fetchResult = await rawDao.fetchOneById(id, {client, propertyBlacklist})
+            return draftBatchId ? unwrapDraft(fetchResult) : fetchResult
           case 'ref':
             // TODO
             return null
