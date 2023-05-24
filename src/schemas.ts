@@ -145,13 +145,15 @@ export function makeSchemaConcrete(
   return concreteSchema
 }
 
-export type RelatedItemStorage = 'copy' | 'ref'
+export type RelationshipStorage = 'copy' | 'ref' | 'inverse-ref'
 
-export interface RelatedItem {
+export interface Relationship {
   path: string
-  schema: ConcreteEntitySchema
+  toMany: boolean
+  storage: RelationshipStorage
   entityTypeName: string
-  storage: RelatedItemStorage
+  schema: ConcreteEntitySchema
+  foreignKeyPath?: string
 }
 
 export function findPropertyInSchema(schema: ConcreteEntitySchema, path: string | string[]): ConcreteEntitySchema | null {
@@ -193,25 +195,37 @@ export function findPropertyInSchema(schema: ConcreteEntitySchema, path: string 
 * Find all related items reference by ID.
 * currentPath is a JSONPath
 */
-export function findRelatedItemsInSchema(schema: ConcreteEntitySchema, allowedStorage?: RelatedItemStorage[], currentPath = '$') {
-  let relatedItems: RelatedItem[] = []
+export function findRelationships(schema: ConcreteEntitySchema, allowedStorage?: RelationshipStorage[], currentPath = '$') {
+  let relationships: Relationship[] = []
   const schemaType = (schema as any).type
-  const entityTypeName = (schema as any).entityType as string | undefined
-  const storage = (schema as any).storage as RelatedItemStorage | undefined
-  const items = (schema as any).items as ConcreteEntitySchema[]
   switch (schemaType) {
     case 'object':
       {
-        if (entityTypeName && (!allowedStorage || (storage && allowedStorage.includes(storage)))) {
-          relatedItems.push({
-            path: currentPath, schema, entityTypeName, storage: storage || 'copy'
-          })
+        const entityTypeName = (schema as any).entityType as string | undefined
+        const storage = (schema as any).storage as RelationshipStorage | undefined
+        if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
+          const relationship: Relationship = {
+            path: currentPath,
+            toMany: false,
+            storage: storage || 'copy',
+            entityTypeName,
+            schema
+          }
+          if (storage == 'inverse-ref') {
+            const foreignKeyPath = (schema as any).foreignKey as string | undefined
+            if (!foreignKeyPath) {
+              // TODO Include the current location in the logged error.
+              throw new InternalError(`Missing foreign key path in relationship with storage type inverse-ref`)
+            }
+            relationship.foreignKeyPath = foreignKeyPath
+          }
+          relationships.push(relationship)
         } else {
           const propertySchemas = _.get(schema, ['properties'], [])
           for (const property of _.keys(propertySchemas)) {
             const subschema = propertySchemas[property]
-            relatedItems = relatedItems.concat(
-              findRelatedItemsInSchema(subschema, allowedStorage, `${currentPath}.${property}`)
+            relationships = relationships.concat(
+              findRelationships(subschema, allowedStorage, `${currentPath}.${property}`)
             )
           }
         }
@@ -219,17 +233,39 @@ export function findRelatedItemsInSchema(schema: ConcreteEntitySchema, allowedSt
       break
     case 'array':
       {
-        if (items) {
-          relatedItems = relatedItems.concat(
-            findRelatedItemsInSchema(items, allowedStorage, `${currentPath}[*]`)
-          )
+        const itemsSchema = (schema as any)?.items as ConcreteEntitySchema | undefined
+        if (itemsSchema) {
+          const entityTypeName = (itemsSchema as any).entityType as string | undefined
+          const storage = (itemsSchema as any).storage as RelationshipStorage | undefined
+          if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
+            const relationship: Relationship = {
+              path: currentPath,
+              toMany: true,
+              storage: storage || 'copy',
+              entityTypeName,
+              schema: itemsSchema
+            }
+            if (storage == 'inverse-ref') {
+              const foreignKeyPath = (schema as any).foreignKey as string | undefined
+              if (!foreignKeyPath) {
+                // TODO Include the current location in the logged error.
+                throw new InternalError(`Missing foreign key path in relationship with storage type inverse-ref`)
+              }
+              relationship.foreignKeyPath = foreignKeyPath
+            }
+            relationships.push(relationship)
+          } else {
+            relationships = relationships.concat(
+              findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`)
+            )
+          }
         }
       }
       break
     default:
       break
   }
-  return relatedItems
+  return relationships
 }
 
 /**
@@ -237,45 +273,71 @@ export function findRelatedItemsInSchema(schema: ConcreteEntitySchema, allowedSt
 */
 // TODO Needs adjustment to handle related items within arrays.
 // TODO Do we really need this? If so, could we filter the results of findRelatedItemsInSchema?
-export function findRelatedItemsInSchemaAlongPath(schema: ConcreteEntitySchema, path: string | string[], allowedStorage?: RelatedItemStorage[], currentPath: string[] = []) {
-  let relatedItems: RelatedItem[] = []
+export function findRelationshipsAlongPath(schema: ConcreteEntitySchema, path: string | string[], allowedStorage?: RelationshipStorage[], currentPath: string[] = []) {
+  let relationships: Relationship[] = []
   const schemaType = (schema as any).type
-  const entityTypeName = (schema as any).entityType as string | undefined
-  const storage = (schema as any).storage as RelatedItemStorage | undefined
-  const items = (schema as any).items as ConcreteEntitySchema[]
   if (!_.isArray(path)) {
     path = path.split('.')
   }
   if (path.length == 0) {
     // TODO Warn about an invalid path
-    return relatedItems
+    return relationships
   }
   switch (schemaType) {
     case 'object':
       {
-        if (entityTypeName && (!allowedStorage || (storage && allowedStorage.includes(storage)))) {
-          relatedItems.push({
-            path: currentPath.join('.'), schema, entityTypeName, storage: storage || 'copy'
+        const entityTypeName = (schema as any).entityType as string | undefined
+        const storage = (schema as any).storage as RelationshipStorage | undefined
+        if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
+          relationships.push({
+            path: currentPath.join('.'),
+            toMany: false,
+            storage: storage || 'copy',
+            entityTypeName,
+            schema
           })
         }
-        const subschema = _.get(schema, ['properties', path[0]], null)
-        if (!subschema) {
-          // TODO Warn
+
+        // Whether or not the object is a relationship, continue traversing the path.
+        const propertySchema = _.get(schema, ['properties', path[0]], null)
+        if (!propertySchema) {
+          // TODO Warn about property in the path that is not in the schema.
         } else {
-          relatedItems = relatedItems.concat(
-            findRelatedItemsInSchemaAlongPath(subschema, _.slice(path, 1), allowedStorage, [...currentPath, path[0]])
+          relationships = relationships.concat(
+            findRelationshipsAlongPath(propertySchema, _.slice(path, 1), allowedStorage, [...currentPath, path[0]])
           )
         }
       }
       break
     case 'array':
       {
-        const subschema = _.get(schema, ['items'], null)
-        if (!subschema) {
-          // TODO Warn about missing items in schema
+        const itemsSchema = (schema as any)?.items as ConcreteEntitySchema | undefined
+        if (itemsSchema) {
+          const entityTypeName = (itemsSchema as any).entityType as string | undefined
+          const storage = (itemsSchema as any).storage as RelationshipStorage | undefined
+          if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
+            relationships.push({
+              path: currentPath.join('.'),
+              toMany: true,
+              storage: storage || 'copy',
+              entityTypeName,
+              schema: itemsSchema
+            })
+          }
+
+          // Whether or not the array is a relationship, continue traversing the path.
+          const subschema = itemsSchema
+          relationships = relationships.concat(
+            findRelationshipsAlongPath(itemsSchema, _.slice(path, 1), allowedStorage, [...currentPath, path[0]])
+          )
+        }
+
+        const itemSchema = _.get(schema, ['items'], null)
+        if (!itemSchema) {
+          // TODO Warn about array entry in the path that has no schema.
         } else {
-          relatedItems = relatedItems.concat(
-            findRelatedItemsInSchemaAlongPath(subschema, _.slice(path, 1), allowedStorage, [...currentPath, path[0]])
+          relationships = relationships.concat(
+            findRelationshipsAlongPath(itemSchema, _.slice(path, 1), allowedStorage, [...currentPath, path[0]])
           )
         }
       }
@@ -283,7 +345,7 @@ export function findRelatedItemsInSchemaAlongPath(schema: ConcreteEntitySchema, 
     default:
       break
   }
-  return relatedItems
+  return relationships
 }
 
 /**

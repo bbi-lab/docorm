@@ -14,8 +14,8 @@ import {
 import {InternalError, PersistenceError} from './errors.js'
 import {
   findPropertyInSchema,
-  findRelatedItemsInSchema,
-  findRelatedItemsInSchemaAlongPath,
+  findRelationships,
+  findRelationshipsAlongPath,
   getSchema,
   listTransientPropertiesOfSchema,
   makeSchemaConcrete,
@@ -50,8 +50,8 @@ export function makeDocOrmMiddleware() {
 
 export {
   findPropertyInSchema,
-  findRelatedItemsInSchema,
-  findRelatedItemsInSchemaAlongPath,
+  findRelationships,
+  findRelationshipsAlongPath,
   getSchema,
   listTransientPropertiesOfSchema,
   makeSchemaConcrete,
