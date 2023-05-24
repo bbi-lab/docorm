@@ -613,14 +613,14 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         jsonPath({path, json: items, resultType: 'pointer'}) as string[]
       ).flat()) : null
 
-      this._fetchForwardReferences(items, pointersToExpand, {
+      await this._fetchForwardReferences(items, relationships, pointersToExpand, {
         client,
         entityTypes,
         daos,
         knownItems
       })
 
-      this._fetchInverseReferences(items, pointersToExpand, {
+      await this._fetchInverseReferences(items, relationships, pointersToExpand, {
         client,
         entityTypes,
         daos,
