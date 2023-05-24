@@ -292,7 +292,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               results = [] // TODO Or error?
             } else {
               const collectionMembers = await rawDao.fetch({
-                l: {path: collection.foreignKeyPath}, r: {constant: parent._id}
+                l: {path: `${collection.foreignKeyPath}.$ref`}, r: {constant: parent._id}
               }) as Entity[]
               // TODO Implement collection filtering by query
               results = collectionMembers.filter((x) => false)
@@ -423,7 +423,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               return [] // TODO Or error?
             } else {
               const collectionMembers = await rawDao.fetch({
-                l: {path: collection.foreignKeyPath}, r: {constant: parent._id}
+                l: {path: `${collection.foreignKeyPath}.$ref`}, r: {constant: parent._id}
               }) as Entity[]
               return collectionMembers
               // TODO Apply order
