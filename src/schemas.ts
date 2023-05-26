@@ -195,7 +195,17 @@ export function findPropertyInSchema(schema: ConcreteEntitySchema, path: string 
 * Find all related items reference by ID.
 * currentPath is a JSONPath
 */
-export function findRelationships(schema: ConcreteEntitySchema, allowedStorage?: RelationshipStorage[], currentPath = '$') {
+export function findRelationships(
+    schema: ConcreteEntitySchema,
+    allowedStorage?: RelationshipStorage[], 
+    currentPath = '$',
+    nodesTraversedInPath: ConcreteEntitySchema[] = []
+) {
+  // Do not traverse circular references.
+  if (nodesTraversedInPath.includes(schema)) {
+    return []
+  }
+
   let relationships: Relationship[] = []
   const schemaType = (schema as any).type
   switch (schemaType) {
@@ -225,7 +235,7 @@ export function findRelationships(schema: ConcreteEntitySchema, allowedStorage?:
           for (const property of _.keys(propertySchemas)) {
             const subschema = propertySchemas[property]
             relationships = relationships.concat(
-              findRelationships(subschema, allowedStorage, `${currentPath}.${property}`)
+              findRelationships(subschema, allowedStorage, `${currentPath}.${property}`, [...nodesTraversedInPath, schema])
             )
           }
         }
@@ -256,7 +266,7 @@ export function findRelationships(schema: ConcreteEntitySchema, allowedStorage?:
             relationships.push(relationship)
           } else {
             relationships = relationships.concat(
-              findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`)
+              findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`, [...nodesTraversedInPath, schema])
             )
           }
         }
