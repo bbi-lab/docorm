@@ -60,8 +60,8 @@ export function initDb() {
 
   // TODO Since we have already set up pg.Pool, this results in a warning about duplicate database objects.
 
-  const pgp = pgpFactory({capSQL: true})
-  const pgpDb = pgp({
+  pgp = pgpFactory({capSQL: true})
+  pgpDb = pgp({
     host: docorm.config.postgresql.host,
     port: docorm.config.postgresql.port,
     database: docorm.config.postgresql.database,
