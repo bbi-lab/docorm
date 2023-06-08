@@ -336,7 +336,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
           operator = '='
           rightWrapper = (expr) => `ANY (${expr})`
           // if (jsonExpressionIsPath(jsonClause.l) &&
-          if (queryExpressionIsConstant(clause.r) && _.isArray(clause.r.constant) && clause.r.constant.includes(null)) {
+          if (queryExpressionIsConstantList(clause.r) && clause.r.constant.includes(null)) {
             clauseWrapper = (sqlClause) => `((${leftExpression} IS NULL) OR (${sqlClause}))`
             /*
             // We don't really need to use @? to allow the case where the path doesn't exist, and using @? slows the query
