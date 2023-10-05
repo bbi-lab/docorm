@@ -45,9 +45,6 @@
     "json-pointer": "^0.6.2",
     "jsonpath-plus": "^7.2.0",
     "lodash": "^4.17.21",
-    "pg": "^8.10.0",
-    "pg-promise": "^11.4.3",
-    "pg-query-stream": "^4.2.1",
     "uuid": "^9.0.0",
     "winston": "^3.8.2"
   },
@@ -64,6 +61,11 @@
     "eslint-plugin-import": "^2.25.2",
     "jsdoc": "^3.6.7",
     "typescript": "^4.9.4"
+  },
+  "optionalDependencies": {
+    "pg": "^8.11.0",
+    "pg-promise": "^11.4.3",
+    "pg-query-stream": "^4.5.0"
   },
   "type": "module"
 }
