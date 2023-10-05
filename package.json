@@ -3,6 +3,7 @@
   "version": "0.0.5",
   "description": "Persistence layer with ORM features for JSON documents",
   "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
