@@ -4,23 +4,6 @@ import {DEFAULT_DOC_ORM_CONFIG, DocOrmConfig, DocOrmConfigInput} from './config.
 import makeDao, {Dao} from './dao.js'
 import {setLogger} from './logger.js'
 import * as db from './postgresql/db.js'
-import {
-  calculateDerivedProperties,
-  getEntityType,
-  getEntityTypes,
-  makeEntityType,
-  registerEntityTypes
-} from './entity-types.js'
-import {InternalError, PersistenceError} from './errors.js'
-import {
-  findPropertyInSchema,
-  findRelationships,
-  findRelationshipsAlongPath,
-  getSchema,
-  listTransientPropertiesOfSchema,
-  makeSchemaConcrete,
-  registerSchemaDirectory
-} from './schemas.js'
 
 export const docorm: {
   config: DocOrmConfig
@@ -48,25 +31,7 @@ export function makeDocOrmMiddleware() {
 }
 */
 
-export {
-  findPropertyInSchema,
-  findRelationships,
-  findRelationshipsAlongPath,
-  getSchema,
-  listTransientPropertiesOfSchema,
-  makeSchemaConcrete,
-  registerSchemaDirectory,
-
-  calculateDerivedProperties,
-  getEntityType,
-  getEntityTypes,
-  makeEntityType,
-  registerEntityTypes,
-
-  db,
-
-  makeDao,
-
-  InternalError,
-  PersistenceError
-}
+export {Dao, db, makeDao}
+export * from './entity-types.js'
+export * from './errors.js'
+export * from './schemas.js'
