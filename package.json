@@ -1,6 +1,6 @@
 {
   "name": "docorm",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Persistence layer with ORM features for JSON documents",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
