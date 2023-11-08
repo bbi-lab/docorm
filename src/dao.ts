@@ -642,6 +642,9 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
       for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
         const pathInItemsArray = relationship.path.replace(/^\$/, '$[*]')
+        if (relationship.toMany) {
+          pathInItemsArray = `${pathInItemsArray}[*]`
+        }
         let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
         if (pointersToExpand) {
           referencePointers = _.intersection(referencePointers, pointersToExpand)
