@@ -91,9 +91,19 @@ export function makeSchemaConcrete(
     }
     const requiredProperties: string[] = [] // _.flatten(concreteSubschemas.map((s) => s.required || []))
     const properties = Object.assign({}, ...concreteSubschemas.map((s) => (s as any).properties || {}))
+
+    // If the schema has oneOf at the top level, check each of the options. If any option describes a relationship
+    // with an entity type or storage method (like 'ref' or 'inverse-ref'), copy those properties to the top level.
+    // This ensures that we can expand references even when they occur as oneOf options.
+    // TODO This approach is a kluge. We should ultimately distinguish between fully concrete schemas (which don't
+    // have refs or storage) and unexpanded concrete schemas (which do).
+    const refProperties = _.merge({}, ...(schema as any).oneOf.map((subschema: EntitySchema) =>
+      _.pick(subschema, ['storage', 'entityType'])))
+
     // TODO Validate the properties once merged?
     Object.assign(concreteSchema, {
       type: 'object',
+      ...refProperties,
       required: _.isEmpty(requiredProperties) ? undefined : requiredProperties,
       properties: _.isEmpty(properties) ? undefined : properties
     })
@@ -208,52 +218,27 @@ export function findRelationships(
 
   let relationships: Relationship[] = []
   const schemaType = (schema as any).type
-  switch (schemaType) {
-    case 'object':
-      {
-        const entityTypeName = (schema as any).entityType as string | undefined
-        const storage = (schema as any).storage as RelationshipStorage | undefined
-        if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
-          const relationship: Relationship = {
-            path: currentPath,
-            toMany: false,
-            storage: storage || 'copy',
-            entityTypeName,
-            schema
-          }
-          if (storage == 'inverse-ref') {
-            const foreignKeyPath = (schema as any).foreignKey as string | undefined
-            if (!foreignKeyPath) {
-              // TODO Include the current location in the logged error.
-              throw new InternalError(`Missing foreign key path in relationship with storage type inverse-ref`)
-            }
-            relationship.foreignKeyPath = foreignKeyPath
-          }
-          relationships.push(relationship)
-        } else {
-          const propertySchemas = _.get(schema, ['properties'], [])
-          for (const property of _.keys(propertySchemas)) {
-            const subschema = propertySchemas[property]
-            relationships = relationships.concat(
-              findRelationships(subschema, allowedStorage, `${currentPath}.${property}`, [...nodesTraversedInPath, schema])
-            )
-          }
-        }
-      }
-      break
-    case 'array':
-      {
-        const itemsSchema = (schema as any)?.items as ConcreteEntitySchema | undefined
-        if (itemsSchema) {
-          const entityTypeName = (itemsSchema as any).entityType as string | undefined
-          const storage = (itemsSchema as any).storage as RelationshipStorage | undefined
+  const oneOf = (schema as any).oneOf
+  if (oneOf && _.isArray(oneOf)) {
+    // This case does not actually arise right now, since we don't allow concrete schemas to use oneOf.
+    for (const subschema of oneOf) {
+      relationships = relationships.concat(
+        findRelationships(subschema, allowedStorage, `${currentPath}`, [...nodesTraversedInPath, schema])
+      )
+    }
+  } else {
+    switch (schemaType) {
+      case 'object':
+        {
+          const entityTypeName = (schema as any).entityType as string | undefined
+          const storage = (schema as any).storage as RelationshipStorage | undefined
           if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
             const relationship: Relationship = {
               path: currentPath,
-              toMany: true,
+              toMany: false,
               storage: storage || 'copy',
               entityTypeName,
-              schema: itemsSchema
+              schema
             }
             if (storage == 'inverse-ref') {
               const foreignKeyPath = (schema as any).foreignKey as string | undefined
@@ -265,15 +250,50 @@ export function findRelationships(
             }
             relationships.push(relationship)
           } else {
-            relationships = relationships.concat(
-              findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`, [...nodesTraversedInPath, schema])
-            )
+            const propertySchemas = _.get(schema, ['properties'], [])
+            for (const property of _.keys(propertySchemas)) {
+              const subschema = propertySchemas[property]
+              relationships = relationships.concat(
+                findRelationships(subschema, allowedStorage, `${currentPath}.${property}`, [...nodesTraversedInPath, schema])
+              )
+            }
           }
         }
-      }
-      break
-    default:
-      break
+        break
+      case 'array':
+        {
+          const itemsSchema = (schema as any)?.items as ConcreteEntitySchema | undefined
+          if (itemsSchema) {
+            const entityTypeName = (itemsSchema as any).entityType as string | undefined
+            const storage = (itemsSchema as any).storage as RelationshipStorage | undefined
+            if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
+              const relationship: Relationship = {
+                path: currentPath,
+                toMany: true,
+                storage: storage || 'copy',
+                entityTypeName,
+                schema: itemsSchema
+              }
+              if (storage == 'inverse-ref') {
+                const foreignKeyPath = (schema as any).foreignKey as string | undefined
+                if (!foreignKeyPath) {
+                  // TODO Include the current location in the logged error.
+                  throw new InternalError(`Missing foreign key path in relationship with storage type inverse-ref`)
+                }
+                relationship.foreignKeyPath = foreignKeyPath
+              }
+              relationships.push(relationship)
+            } else {
+              relationships = relationships.concat(
+                findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`, [...nodesTraversedInPath, schema])
+              )
+            }
+          }
+        }
+        break
+      default:
+        break
+    }
   }
   return relationships
 }
@@ -342,6 +362,7 @@ export function findRelationshipsAlongPath(schema: ConcreteEntitySchema, path: s
           )
         }
 
+        // TODO Isn't this redundant?
         const itemSchema = _.get(schema, ['items'], null)
         if (!itemSchema) {
           // TODO Warn about array entry in the path that has no schema.
