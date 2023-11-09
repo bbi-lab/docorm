@@ -150,6 +150,7 @@ interface FetchRelationshipsOptions extends FetchRelationshipsOptionsInput {
   entityTypes: {[entityTypeName: string]: EntityType}
   daos: {[entityTypeName: string]: Dao}
   knownItems: {[entityTypeName: string]: {[id: Id]: Entity}}
+  pathPrefix?: {[pathPrefix: string]: string}
 }
 
 const DEFAULT_FETCH_RELATIONSHIPS_OPTIONS: FetchRelationshipsOptions = {
@@ -584,19 +585,24 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
     // TODO Fetch nested references: a -> b -> c. After fetching all of a's references, collect the newly added items,
     // and fetch references for each of them (preferably together instead of sequentially).
-    fetchRelationships: async function(items: Entity[], pathsToExpand?: string[], {client = undefined}: {client?: Client} = {}) {
+    fetchRelationships: async function(
+      items: Entity[],
+      pathsToExpand?: string[],
+      {client = undefined, entityTypeAtPathPrefix = undefined, pathPrefix = undefined}: {client?: Client, entityTypeAtPathPrefix?: EntityType, pathPrefix?: string} = {}
+    ) {
       if (pathsToExpand && pathsToExpand.length == 0) {
         return
       }
+      const currentEntityType = entityTypeAtPathPrefix !== undefined ? entityTypeAtPathPrefix : entityType
 
       // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
       // more than once.
       const knownItems: {[entityTypeName: string]: {[id: Id]: Entity}} = {
-        [entityType.name]: {}
+        [currentEntityType.name]: {}
       }
       for (const item of items) {
         if (item._id) {
-          knownItems[entityType.name][item._id] = item
+          knownItems[currentEntityType.name][item._id] = item
         }
       }
 
@@ -604,12 +610,24 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const daos: {[entityTypeName: string]: Dao} = {}
 
       // Get all related item definitions in the current item's entity type.
-      const relationships = findRelationships(entityType.concreteSchema, ['ref'])
+      const relationships = findRelationships(currentEntityType.concreteSchema, ['ref'])
 
-      // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).
+      const groupedNestedPaths: {[pathPrefix: string]: string[]} = {}
       if (pathsToExpand) {
-        pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
+          // Split paths to expand into nested and non-nested.
+          // Only expand non-nested paths on this iteration, call recursively for nested paths
+          const nestedPaths = pathsToExpand.filter((item) => pathsToExpand?.includes(item.substr(0, item.lastIndexOf("."))))
+          pathsToExpand = pathsToExpand.filter((item) => !nestedPaths.includes(item))
+
+          for (const pathToExpand of pathsToExpand) {
+            if (_.some(nestedPaths, (nestedPath: string) => nestedPath.startsWith(pathToExpand))) {
+              groupedNestedPaths[pathToExpand] = nestedPaths.filter((nestedPath) => nestedPath.startsWith(pathToExpand))
+            }
+          }
+          // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).
+          pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
       }
+
       const pointersToExpand: string[] | null = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
         jsonPath({path, json: items, resultType: 'pointer'}) as string[]
       ).flat()) : null
@@ -618,7 +636,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         client,
         entityTypes,
         daos,
-        knownItems
+        knownItems,
+        pathPrefix
       })
 
       await this._fetchInverseReferences(items, relationships, pointersToExpand, {
@@ -627,6 +646,15 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         daos,
         knownItems
       })
+
+      // recursive call to expand nested paths
+      for (const [key, value] of Object.entries(groupedNestedPaths)) {
+        const relationship = relationships.find((r) => r.path == key)
+        const relationshipEntityType = relationship ? await getEntityType(relationship.entityTypeName) : null
+        if (relationshipEntityType) {
+          await this.fetchRelationships(items, value, {client, entityTypeAtPathPrefix: relationshipEntityType, pathPrefix: key})
+        }
+      }
     },
 
     _fetchForwardReferences: async function(items: Entity[], relationships: Relationship[], pointersToExpand?: string[], options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS) {
@@ -634,14 +662,15 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         client,
         entityTypes,
         daos,
-        knownItems
+        knownItems,
+        pathPrefix
       } = _.merge(options, DEFAULT_FETCH_RELATIONSHIPS_OPTIONS)
 
       // Get all related item references in the current item.
       // Expand any references that can be satisfied with items already loaded, and collect a list of the rest.
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
       for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
-        const pathInItemsArray = relationship.path.replace(/^\$/, '$[*]')
+        let pathInItemsArray = pathPrefix ? relationship.path.replace(/^\$/, pathPrefix.toString().replace(/^\$/, '$[*]')) : relationship.path.replace(/^\$/, '$[*]')
         if (relationship.toMany) {
           pathInItemsArray = `${pathInItemsArray}[*]`
         }
