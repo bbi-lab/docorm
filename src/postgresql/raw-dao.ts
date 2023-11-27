@@ -419,7 +419,8 @@ interface FetchOptionsInput {
   offset?: number,
   limit?: number,
   stream?: any,
-  propertyBlacklist?: PropertyPath[]
+  propertyBlacklist?: PropertyPath[],
+  idsOnly?: boolean
 }
 
 /** Options for calls to fetch, with optional parameters supplied by defaults. */
@@ -429,11 +430,14 @@ interface FetchOptions extends FetchOptionsInput {
   offset?: number,
   limit?: number,
   stream?: any,
-  propertyBlacklist?: PropertyPath[]
+  propertyBlacklist?: PropertyPath[],
+  idsOnly: boolean
 }
 
 /** Default options for calls to fetch. */
-const FETCH_DEFAULT_OPTIONS: FetchOptions = {}
+const FETCH_DEFAULT_OPTIONS: FetchOptions = {
+  idsOnly: false
+}
 
 const makeRawDao = function(entityType: EntityType) {
   return {

@@ -98,7 +98,7 @@ export function makeSchemaConcrete(
     // TODO This approach is a kluge. We should ultimately distinguish between fully concrete schemas (which don't
     // have refs or storage) and unexpanded concrete schemas (which do).
     const refProperties = _.merge({}, ...(schema as any).oneOf.map((subschema: EntitySchema) =>
-      _.pick(subschema, ['storage', 'entityType'])))
+      _.pick(subschema, ['storage', 'foreignKey', 'entityType'])))
 
     // TODO Validate the properties once merged?
     Object.assign(concreteSchema, {
@@ -117,15 +117,15 @@ export function makeSchemaConcrete(
       if (!subschema) {
         throw new InternalError(`Schema refers to unknown subschema with $ref "${path}".`)
       }
-      const concreteSubschema = makeSchemaConcrete(subschema, schemaType, namespace, {
+      concreteSchema = makeSchemaConcrete(subschema, schemaType, namespace, {
         knownConcreteSubschemas,
         currentSchemaNewRef: (schema as any).$ref
       })
-      if ((schema as any).entityType && (schema as any).storage) {
-        // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
-        Object.assign(concreteSubschema, _.pick(schema, ['entityType', 'storage']))
-      }
-      Object.assign(concreteSchema, concreteSubschema)
+    }
+    if ((schema as any).entityType || (schema as any).foreignKey || (schema as any).storage) {
+      concreteSchema = _.cloneDeep(concreteSchema)
+      // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
+      Object.assign(concreteSchema, _.pick(schema, ['entityType', 'foreignKey', 'storage']));
     }
   } else {
     switch ((schema as any).type) {
@@ -275,7 +275,7 @@ export function findRelationships(
                 schema: itemsSchema
               }
               if (storage == 'inverse-ref') {
-                const foreignKeyPath = (schema as any).foreignKey as string | undefined
+                const foreignKeyPath = (itemsSchema as any).foreignKey as string | undefined
                 if (!foreignKeyPath) {
                   // TODO Include the current location in the logged error.
                   throw new InternalError(`Missing foreign key path in relationship with storage type inverse-ref`)

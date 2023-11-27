@@ -1,4 +1,8 @@
-export type PropertyPath = string | string[]
+export type PropertyPathStr = string
+export type PropertyPath = PropertyPathStr | string[]
+
+export type JsonPathStr = string
+export type JsonPointerStr = string
 
 export type QueryConstant = string | number | boolean | null
 export type QueryFullTextSearchContext = 'default'

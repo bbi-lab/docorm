@@ -13,7 +13,15 @@ import {v4 as uuidv4} from 'uuid'
 import {Collection, Entity, EntityType, getEntityType, Id} from './entity-types.js'
 import {PersistenceError} from './errors.js'
 import {Client} from './postgresql/db.js'
-import {QueryClause, queryClauseIsAnd, QueryOrder} from './queries.js'
+import {
+  JsonPathStr,
+  JsonPointerStr,
+  PropertyPath,
+  PropertyPathStr,
+  QueryClause,
+  queryClauseIsAnd,
+  QueryOrder
+} from './queries.js'
 import makeRawDao, {FetchResults, fetchResultsIsArray, fetchResultsIsStream} from './postgresql/raw-dao.js'
 import {
   ConcreteEntitySchema,
@@ -30,6 +38,11 @@ function hasKey<O extends object>(obj: O, key: PropertyKey): key is keyof O {
 }
 
 type PathTransformer = (path: string) => {path: string, additionalOptions?: {[key: string]: any}}
+
+function jsonPathToPropertyPath(jsonPath: string) {
+  // TODO First ensure that the JSON path begins with $. and does not contain any complex elements.
+  return jsonPath.substring(2)
+}
 
 function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []): T {
   if (x == null) {
@@ -63,7 +76,7 @@ function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []):
   return mappedObject as typeof x
 }
 
-const makePathTransformer = (schema: ConcreteEntitySchema, isDraft = false) => (path: string) => {
+const makePathTransformer = (schema: ConcreteEntitySchema, isDraft = false) => (path: PropertyPathStr) => {
   const result: ReturnType<PathTransformer> = {
     path: (path == '_id' || !isDraft) ? path : `draft.${path}`
   }
@@ -610,7 +623,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const daos: {[entityTypeName: string]: Dao} = {}
 
       // Get all related item definitions in the current item's entity type.
-      const relationships = findRelationships(currentEntityType.concreteSchema, ['ref'])
+      const relationships = findRelationships(currentEntityType.concreteSchema, ['ref', 'inverse-ref'])
 
       const groupedNestedPaths: {[pathPrefix: string]: string[]} = {}
       if (pathsToExpand) {
@@ -624,15 +637,20 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               groupedNestedPaths[pathToExpand] = nestedPaths.filter((nestedPath) => nestedPath.startsWith(pathToExpand))
             }
           }
-          // If only certain paths are to be expanded, make these relative to the list of items (instead of to an item).
-          pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$/, '$[*]'))
       }
 
-      const pointersToExpand: string[] | null = pathsToExpand ? _.uniq(pathsToExpand.map((path) =>
-        jsonPath({path, json: items, resultType: 'pointer'}) as string[]
-      ).flat()) : null
-
-      await this._fetchForwardReferences(items, relationships, pointersToExpand, {
+      // For forward references, make the paths relative to the list of items (instead of relative to one item),
+      // then apply them to the items to get a list of JSON pointers representing nodes to expand in the data graph.
+      const forwardReferencePointersToExpand = pathsToExpand ?
+          _.uniq(pathsToExpand.map((path) =>
+            jsonPath({
+              path: path.replace(/^\$/, '$[*]'),
+              json: items,
+              resultType: 'pointer'
+            }) as string[]).flat()
+          )
+          : null
+      await this._fetchForwardReferences(items, relationships, forwardReferencePointersToExpand, {
         client,
         entityTypes,
         daos,
@@ -640,7 +658,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         pathPrefix
       })
 
-      await this._fetchInverseReferences(items, relationships, pointersToExpand, {
+      await this._fetchInverseReferences(items, relationships, pathsToExpand, {
         client,
         entityTypes,
         daos,
@@ -657,7 +675,12 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       }
     },
 
-    _fetchForwardReferences: async function(items: Entity[], relationships: Relationship[], pointersToExpand?: string[], options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS) {
+    _fetchForwardReferences: async function(
+        items: Entity[],
+        relationships: Relationship[],
+        pointersToExpand?: JsonPointerStr[],
+        options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS
+    ) {
       let {
         client,
         entityTypes,
@@ -726,9 +749,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         for (const reference of itemReferences) {
           const referencedItem = referencedItems[reference.id]
           if (referencedItem) {
-            // console.log('EXPANDING REFERENCE')
-            // console.log(reference.pointer)
-            // console.log(referencedItem)
             jsonPointer.set(items, reference.pointer, referencedItem)
           } else {
             // TODO Warn about data inconsistency: a referenced item was missing.
@@ -737,7 +757,12 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       }
     },
 
-    _fetchInverseReferences: async function(items: Entity[], relationships: Relationship[], pointersToExpand?: string[], options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS) {
+    _fetchInverseReferences: async function(
+        items: Entity[],
+        relationships: Relationship[],
+        pathsToExpand?: JsonPathStr[],
+        options: FetchRelationshipsOptions = DEFAULT_FETCH_RELATIONSHIPS_OPTIONS
+    ) {
       let {
         client,
         entityTypes,
@@ -750,31 +775,31 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         [entityTypeName: string]: {
           [foreignKeyPath: string]: {
             item: Entity,
-            path: string,
+            path: JsonPathStr,
+            propertyPath: PropertyPathStr,
             toMany: boolean,
-            id: Id
+            parentId: Id
           }[]
         }
       } = {}
       for (const relationship of relationships.filter((r) => r.storage == 'inverse-ref')) {
-        // const pathInItemsArray = relationship.path.replace(/^\$/, '$[*]')
-        /*let relationshipSchemaPointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
-        if (pointersToExpand) {
-          relationshipSchemaPointers = _.intersection(relationshipSchemaPointers, pointersToExpand)
-        }*/
+        if (pathsToExpand && !pathsToExpand.includes(relationship.path)) {
+          continue
+        }
         if (!relationship.foreignKeyPath) {
           // TODO Provide more details.
           throw new PersistenceError('Missing foreign key path in relationship with storage inverse-ref')
         }
         inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] = inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] || {}
         inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] =
-            inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || {}
+            inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || []
         inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath].push(
           ...items.map((item) => ({
             item,
             path: relationship.path,
+            propertyPath: jsonPathToPropertyPath(relationship.path),
             toMany: relationship.toMany,
-            id: item._id // TODO Handle nested items, where the relationship's parent is not a root item.
+            parentId: item._id // TODO Handle nested items, where the relationship's parent is not a root item.
           }))
         )
       }
@@ -782,10 +807,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       for (const referencedItemEntityTypeName of _.keys(inverseReferencesByEntityTypeNameAndForeignKeyPath)) {
         for (const foreignKeyPath of _.keys(inverseReferencesByEntityTypeNameAndForeignKeyPath[referencedItemEntityTypeName])) {
           const inverseReferences = inverseReferencesByEntityTypeNameAndForeignKeyPath[referencedItemEntityTypeName][foreignKeyPath]
-          const ids = _.uniq(inverseReferences.map((r) => r.id))
+          const parentIds = _.uniq(inverseReferences.map((r) => r.parentId))
 
           // Fetch all related items with this entity type and foreign key.
-          if (ids.length > 0) {
+          if (parentIds.length > 0) {
   //        const itemReferences = itemReferencesByEntityTypeName[referencedItemEntityTypeName]
             let referencedItemEntityType = entityTypes[referencedItemEntityTypeName]
             let referencedItemDao = daos[referencedItemEntityTypeName]
@@ -803,22 +828,22 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               referencedItemDao = await makeDao(referencedItemEntityType)
               daos[referencedItemEntityTypeName] = referencedItemDao
             }
-            const relatedItemsById = _.keyBy(
-              await referencedItemDao.fetch({l: {path: `${foreignKeyPath}.$ref`}, r: {constant: ids}, operator: 'in'}, [], {client}),
-              '_id'
+            const relatedItemsByParentId = _.groupBy(
+              await referencedItemDao.fetch({l: {path: `${foreignKeyPath}.$ref`}, r: {constant: parentIds}, operator: 'in'}, [], {client}),
+              (referencedItem) => _.get(referencedItem, `${foreignKeyPath}.$ref`)
             )
 
             // Assign the related items to their relationships.
             for (const inverseReference of inverseReferences) {
-              const relatedItems = relatedItemsById[inverseReference.id]
+              const relatedItems = relatedItemsByParentId[inverseReference.parentId]
               if (inverseReference.toMany) {
                 // TODO Order the related items if an order is configured.
-                _.set(inverseReference.item, inverseReference.path, relatedItems)
+                _.set(inverseReference.item, inverseReference.propertyPath, relatedItems)
               } else if (relatedItems.length > 1) {
                 // TODO Provide more detail.
                 throw new PersistenceError(`Found more than one related item for a to-one relationship.`)
               } else if (relatedItems.length == 1) {
-                _.set(inverseReference.item, inverseReference.path, relatedItems[0])
+                _.set(inverseReference.item, inverseReference.propertyPath, relatedItems[0])
               }
             }
           }
