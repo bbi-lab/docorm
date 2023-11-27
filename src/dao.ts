@@ -833,9 +833,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (!item._id) {
         item._id = uuidv4()
       }
-      for (const callback of dbCallbacks.beforeInsert || []) {
-        await callback(item, {draftBatchId})
-      }
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
@@ -851,6 +848,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             } else {
               // TODO Support an auto-incremented order property.
               _.set(item, collection.foreignKeyPath, {$ref: parent._id})
+
+              for (const callback of dbCallbacks.beforeInsert || []) {
+                await callback(item, {dao: this, draftBatchId})
+              }
+
               const wrappedItem = draftBatchId ? wrapDraft(item) : item
               const insertResult = await rawDao.insert(wrappedItem, {client})
               item = draftBatchId ? unwrapDraft(insertResult) : insertResult
@@ -862,6 +864,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             if (!parent) {
               return null // TODO Error
             } else {
+              for (const callback of dbCallbacks.beforeInsert || []) {
+                await callback(item, {dao: this, draftBatchId})
+              }
+
               const wrappedItem = draftBatchId ? wrapDraft(item) : item
               const insertResult = await rawDao.insert(wrappedItem, {client})
               item = draftBatchId ? unwrapDraft(insertResult) : insertResult
@@ -888,6 +894,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               if (existingItem) {
                 return null // TODO Error
               } else {
+                for (const callback of dbCallbacks.beforeInsert || []) {
+                  await callback(item, {dao: this, draftBatchId})
+                }
+
                 _.set(
                   parent,
                   collection.subpath,
@@ -900,12 +910,16 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           }
         }
       } else {
+        for (const callback of dbCallbacks.beforeInsert || []) {
+          await callback(item, {dao: this, draftBatchId})
+        }
+
         const wrappedItem = draftBatchId ? wrapDraft(item) : item
         const insertResult = await rawDao.insert(wrappedItem, {client})
         item = draftBatchId ? unwrapDraft(insertResult) : insertResult
       }
       for (const callback of dbCallbacks.afterInsert || []) {
-        await callback(item, {draftBatchId})
+        await callback(item, {dao: this, draftBatchId})
       }
       return item
     },
@@ -935,10 +949,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         originalItem = await this.fetchOneById(item._id)
       }
       for (const callback of dbCallbacks.beforeUpdate || []) {
-        await callback(originalItem, item, {draftBatchId})
+        await callback(originalItem, item, {dao: this, draftBatchId})
       }
       for (const callback of dbCallbacks.beforeUpdateWithoutOriginal || []) {
-        await callback(item, {draftBatchId})
+        await callback(item, {dao: this, draftBatchId})
       }
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
@@ -1015,10 +1029,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         item = draftBatchId ? unwrapDraft(updateResult) : updateResult
       }
       for (const callback of dbCallbacks.afterUpdateWithoutOriginal || []) {
-        await callback(item, {draftBatchId})
+        await callback(item, {dao: this, draftBatchId})
       }
       for (const callback of dbCallbacks.afterUpdate || []) {
-        await callback(originalItem, item, {draftBatchId})
+        await callback(originalItem, item, {dao: this, draftBatchId})
       }
       return item
     },
@@ -1060,7 +1074,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
         for (const id of idsToDelete) {
           for (const callback of dbCallbacks.beforeDelete || []) {
-            await callback(id)
+            await callback(id, {dao: this})
           }
         }
 
@@ -1068,7 +1082,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
         for (const id of idsToDelete) {
           for (const callback of dbCallbacks.afterDelete || []) {
-            await callback(id)
+            await callback(id, {dao: this})
           }
         }
 
@@ -1099,11 +1113,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               // TODO First check that the item belongs to the collection.
               // TODO Support an auto-incremented order property, which may be decremented for following siblings.
               for (const callback of dbCallbacks.beforeDelete || []) {
-                await callback(id)
+                await callback(id, {dao: this})
               }
               await rawDao.deleteOneById(id, {client})
               for (const callback of dbCallbacks.afterDelete || []) {
-                await callback(id)
+                await callback(id, {dao: this})
               }
             }
           }
@@ -1111,11 +1125,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           case 'ref': {
             // TODO First check that the item belongs to the collection.
             for (const callback of dbCallbacks.beforeDelete || []) {
-              await callback(id)
+              await callback(id, {dao: this})
             }
             await rawDao.deleteOneById(id, {client})
             for (const callback of dbCallbacks.afterDelete || []) {
-              await callback(id)
+              await callback(id, {dao: this})
             }
             // TODO Delete the reference from the parent.
             break
@@ -1130,14 +1144,14 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
                 return null // TODO Error
               } else {
                 for (const callback of dbCallbacks.beforeDelete || []) {
-                  await callback(id)
+                  await callback(id, {dao: this})
                 }
                 const collectionItems = _.get(parent, collection.name)
                 collectionItems.splice(existingItemIndex, 1)
                 _.set(parent, collection.name, collectionItems)
                 await _.last(parentDaos).update(parent, parentIds.slice(0, -1))
                 for (const callback of dbCallbacks.afterDelete || []) {
-                  await callback(id)
+                  await callback(id, {dao: this})
                 }
               }
             }
@@ -1146,11 +1160,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
       } else {
         for (const callback of dbCallbacks.beforeDelete || []) {
-          await callback(id)
+          await callback(id, {dao: this})
         }
         await rawDao.deleteOneById(id, {client})
         for (const callback of dbCallbacks.afterDelete || []) {
-          await callback(id)
+          await callback(id, {dao: this})
         }
       }
     }

@@ -6,6 +6,8 @@ import {importDirectory} from './import-dir.js'
 import {QueryClause, QueryOrder} from './queries.js'
 import {ConcreteEntitySchema, EntitySchema, getSchema, makeSchemaConcrete} from './schemas.js'
 
+type SyncOrAsync<T extends (...args: any) => any> =
+    ((...args: Parameters<T>) => ReturnType<T>) | ((...args: Parameters<T>) => Promise<ReturnType<T>>)
 export type HttpMethod = 'get' | 'post' | 'put' | 'delete'
 
 export type Id = string | number
@@ -31,7 +33,12 @@ export interface User {
   initials: string
 }
 
+export interface DeleteDaoCallbackOptions {
+  dao: Dao
+}
+
 export interface SaveDaoCallbackOptions {
+  dao: Dao,
   draftBatchId?: string
 }
 
@@ -74,25 +81,25 @@ export interface BeforeValidateRestCallbackOptions {
 }
 
 export interface DbCallbacks {
-  beforeInsert?: ((item: Entity, options: SaveDaoCallbackOptions) => void)[]
-  afterInsert?: ((item: Entity, options: SaveDaoCallbackOptions) => void)[]
-  beforeUpdate?: ((oldItem: Entity, newItem: Entity, options: SaveDaoCallbackOptions) => void)[]
-  beforeUpdateWithoutOriginal?: ((newItem: Entity, options: SaveDaoCallbackOptions) => void)[]
-  afterUpdateWithoutOriginal?: ((newItem: Entity, options: SaveDaoCallbackOptions) => void)[]
-  afterUpdate?: ((oldItem: Entity, newItem: Entity, options: SaveDaoCallbackOptions) => void)[]
-  beforeDelete?: ((id: Id) => void)[]
-  afterDelete?: ((id: Id) => void)[]
-  beforeEmbedRelatedItemCopy?: ((item: Entity, relatedItemPath: string, relatedItemEntityType: EntityType, relatedItem: Entity) => Entity)[]
+  beforeInsert?: (SyncOrAsync<(item: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  afterInsert?: (SyncOrAsync<(item: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  beforeUpdate?: (SyncOrAsync<(oldItem: Entity, newItem: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  beforeUpdateWithoutOriginal?: (SyncOrAsync<(newItem: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  afterUpdateWithoutOriginal?: (SyncOrAsync<(newItem: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  afterUpdate?: (SyncOrAsync<(oldItem: Entity, newItem: Entity, options: SaveDaoCallbackOptions) => void>)[]
+  beforeDelete?: (SyncOrAsync<(id: Id, options: DeleteDaoCallbackOptions) => void>)[]
+  afterDelete?: (SyncOrAsync<(id: Id, options: DeleteDaoCallbackOptions) => void>)[]
+  beforeEmbedRelatedItemCopy?: (SyncOrAsync<(item: Entity, relatedItemPath: string, relatedItemEntityType: EntityType, relatedItem: Entity) => Entity>)[]
 }
 
 export interface RestCallbacks {
-  beforeCreate?: ((item: Entity, options: BeforeSaveRestCallbackOptions) => void)[]
-  afterCreate?: ((item: Entity, options: AfterSaveRestCallbackOptions) => void)[]
-  beforeListItems?: ((options: BeforeListItemsRestCallbackOptions) => void)[]
-  beforeUpdate?: ((item: Entity, options: BeforeSaveRestCallbackOptions) => Entity)[]
-  afterUpdate?: ((item: Entity, options: AfterSaveRestCallbackOptions) => void)[]
-  beforeValidateCreate?: ((item: Entity, options: BeforeValidateRestCallbackOptions) => void)[]
-  beforeValidateUpdate?: ((item: Entity, options: BeforeValidateRestCallbackOptions) => void)[]
+  beforeCreate?: (SyncOrAsync<(item: Entity, options: BeforeSaveRestCallbackOptions) => void>)[]
+  afterCreate?: (SyncOrAsync<(item: Entity, options: AfterSaveRestCallbackOptions) => void>)[]
+  beforeListItems?: (SyncOrAsync<(options: BeforeListItemsRestCallbackOptions) => void>)[]
+  beforeUpdate?: (SyncOrAsync<(item: Entity, options: BeforeSaveRestCallbackOptions) => Entity>)[]
+  afterUpdate?: (SyncOrAsync<(item: Entity, options: AfterSaveRestCallbackOptions) => void>)[]
+  beforeValidateCreate?: (SyncOrAsync<(item: Entity, options: BeforeValidateRestCallbackOptions) => void>)[]
+  beforeValidateUpdate?: (SyncOrAsync<(item: Entity, options: BeforeValidateRestCallbackOptions) => void>)[]
 }
 
 export interface EntityTypeDefinition {
