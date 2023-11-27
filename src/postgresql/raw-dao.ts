@@ -294,6 +294,9 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
           }
           // TODO Maybe we can support cases where the left side is constant: '"CONSTANTSTRING" contains column'
           break
+        case 'like':
+          operator = 'LIKE'
+          break
         case '=':
         case undefined:
           operator = '='
