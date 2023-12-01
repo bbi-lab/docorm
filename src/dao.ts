@@ -16,7 +16,7 @@ import {Client} from './postgresql/db.js'
 import {
   JsonPathStr,
   JsonPointerStr,
-  PropertyPath,
+  PropertyPathArray,
   PropertyPathStr,
   QueryClause,
   queryClauseIsAnd,
@@ -42,6 +42,64 @@ type PathTransformer = (path: string) => {path: string, additionalOptions?: {[ke
 function jsonPathToPropertyPath(jsonPath: string) {
   // TODO First ensure that the JSON path begins with $. and does not contain any complex elements.
   return jsonPath.substring(2)
+}
+
+function dottedPathToArray(path: PropertyPathStr): PropertyPathArray {
+  const pathArray = []
+  let tail = path
+  while (tail.length > 0) {
+      const match = tail.match(/^([^\[]*)\[([0-9]+|\*)\]\.?(.*)$/)
+      if (!match) {
+          pathArray.push(tail)
+          tail = ''
+      } else {
+          if (match[1] != null) {
+              pathArray.push(match[1])
+          }
+          if (match[2] != null) {
+              if (match[2] == '*') {
+                  pathArray.push(-1)
+              } else {
+                  pathArray.push(parseInt(match[1]))
+              }
+          }
+          tail = match[3] || ''
+      }
+  }
+  return pathArray
+}
+
+function arrayToDottedPath(pathArray: PropertyPathArray): PropertyPathStr {
+  if (pathArray.length == 0) {
+      return ''
+  }
+  const firstElement = pathArray[0]
+  return [
+      firstElement,
+      ...pathArray.slice(1).map(
+          (pathElement) => _.isNumber(pathElement) ? `[${pathElement == -1 ? '*' : pathElement}]` : `.${pathElement}`
+      )
+  ].join('')
+}
+
+function shortenPath(path: PropertyPathStr, numComponentsToTrim: number): PropertyPathStr {
+  const pathArray = dottedPathToArray(path)
+  if (numComponentsToTrim > pathArray.length) {
+      throw 'Error'
+  } else {
+      const shortenedPathArray = pathArray.slice(0, -numComponentsToTrim)
+      return arrayToDottedPath(shortenedPathArray)
+  }
+}
+
+function tailPath(path: PropertyPathStr, numComponentsToTrim: number): PropertyPathStr {
+  const pathArray = dottedPathToArray(path)
+  if (numComponentsToTrim > pathArray.length) {
+      throw 'Error'
+  } else {
+      const pathTailArray = pathArray.slice(-numComponentsToTrim)
+      return arrayToDottedPath(pathTailArray)
+  }
 }
 
 function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []): T {
@@ -550,7 +608,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           }
         }
       } else {
-        // TODO Support stream-baseed fetching.
+        // TODO Support stream-based fetching.
         const fetchResult = (ids.length > 0) ?
             await rawDao.fetch({l: {path: '_id'}, r: {constant: ids}, operator: 'in'}, {client, propertyBlacklist}) as FetchResults : []
         items = draftBatchId ? fetchResult.map((item: Entity) => unwrapDraft(item)) : fetchResult
@@ -625,6 +683,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       // Get all related item definitions in the current item's entity type.
       const relationships = findRelationships(currentEntityType.concreteSchema, ['ref', 'inverse-ref'])
 
+      /*
       const groupedNestedPaths: {[pathPrefix: string]: string[]} = {}
       if (pathsToExpand) {
           // Split paths to expand into nested and non-nested.
@@ -638,6 +697,9 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             }
           }
       }
+      */
+
+      let numReferencesFetched = 0
 
       // For forward references, make the paths relative to the list of items (instead of relative to one item),
       // then apply them to the items to get a list of JSON pointers representing nodes to expand in the data graph.
@@ -650,7 +712,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             }) as string[]).flat()
           )
           : null
-      await this._fetchForwardReferences(items, relationships, forwardReferencePointersToExpand, {
+      numReferencesFetched += await this._fetchForwardReferences(items, relationships, forwardReferencePointersToExpand, {
         client,
         entityTypes,
         daos,
@@ -658,13 +720,18 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         pathPrefix
       })
 
-      await this._fetchInverseReferences(items, relationships, pathsToExpand, {
+      numReferencesFetched +=  await this._fetchInverseReferences(items, relationships, pathsToExpand, {
         client,
         entityTypes,
         daos,
         knownItems
       })
 
+      if (numReferencesFetched > 0) {
+        await this.fetchRelationships(items, pathsToExpand, {client, entityTypeAtPathPrefix, pathPrefix});
+      }
+
+      /*
       // recursive call to expand nested paths
       for (const [key, value] of Object.entries(groupedNestedPaths)) {
         const relationship = relationships.find((r) => r.path == key)
@@ -673,6 +740,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           await this.fetchRelationships(items, value, {client, entityTypeAtPathPrefix: relationshipEntityType, pathPrefix: key})
         }
       }
+      */
     },
 
     _fetchForwardReferences: async function(
@@ -692,6 +760,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       // Get all related item references in the current item.
       // Expand any references that can be satisfied with items already loaded, and collect a list of the rest.
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
+      let numReferencesFetched = 0
       for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
         let pathInItemsArray = pathPrefix ? relationship.path.replace(/^\$/, pathPrefix.toString().replace(/^\$/, '$[*]')) : relationship.path.replace(/^\$/, '$[*]')
         if (relationship.toMany) {
@@ -710,6 +779,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               // TODO Ensure that _.set works with all simple JSONPaths returned by JSONPath({resultType: 'path'}).
               // Alternatively, use JSON pointers instead.
               _.set(items, referencePointer, knownItem)
+              numReferencesFetched += 1
             } else {
               itemReferencesByEntityTypeName[relationship.entityTypeName] =
                   itemReferencesByEntityTypeName[relationship.entityTypeName] || []
@@ -750,11 +820,14 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           const referencedItem = referencedItems[reference.id]
           if (referencedItem) {
             jsonPointer.set(items, reference.pointer, referencedItem)
+            numReferencesFetched += 1
           } else {
             // TODO Warn about data inconsistency: a referenced item was missing.
           }
         }
       }
+
+      return numReferencesFetched
     },
 
     _fetchInverseReferences: async function(
@@ -768,6 +841,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         entityTypes,
         daos
       } = _.merge(options, DEFAULT_FETCH_RELATIONSHIPS_OPTIONS)
+
+      let numReferencesFetched = 0
 
       // Get all related item references in the current item.
       // Expand any references that can be satisfied with items already loaded, and collect a list of the rest.
@@ -793,15 +868,37 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] = inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] || {}
         inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] =
             inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || []
-        inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath].push(
-          ...items.map((item) => ({
-            item,
-            path: relationship.path,
-            propertyPath: jsonPathToPropertyPath(relationship.path),
-            toMany: relationship.toMany,
-            parentId: item._id // TODO Handle nested items, where the relationship's parent is not a root item.
-          }))
+
+        const propertyPathFromRoot: PropertyPathStr = jsonPathToPropertyPath(relationship.path)
+        const parentPath: PropertyPathStr = shortenPath(propertyPathFromRoot, relationship.depthFromParent)
+        const propertyPath: PropertyPathStr = tailPath(propertyPathFromRoot, relationship.depthFromParent)// CHANGE
+        const parentPathInItemsArray: PropertyPathStr = ['$[*]', parentPath]
+            .filter(Boolean).filter((x) => x.length > 0).join('.')
+        const parentPointers = jsonPath({path: parentPathInItemsArray, json: items, resultType: 'pointer'}) as JsonPointerStr[]
+
+        const parentItems: Entity[] = []
+        for (const parentPointer of parentPointers) {
+            const parentItem = jsonPointer.get(items, parentPointer)
+            if (parentItem) {
+                parentItems.push(parentItem)
+            }
+        }
+
+        const parentItemsWithUnfilledRelationships = parentItems.filter(
+          (parentItem) => _.get(parentItem, propertyPath) === undefined
         )
+        if (parentItems.length > 0) {
+          inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath].push(
+            ...parentItemsWithUnfilledRelationships.map((parentItem) => ({
+              item: parentItem,
+              path: relationship.path,
+              propertyPath: propertyPath,
+              toMany: relationship.toMany,
+              // CHANGE
+              parentId: parentItem._id
+            }))
+          )
+        }
       }
 
       for (const referencedItemEntityTypeName of _.keys(inverseReferencesByEntityTypeNameAndForeignKeyPath)) {
@@ -835,20 +932,27 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
             // Assign the related items to their relationships.
             for (const inverseReference of inverseReferences) {
-              const relatedItems = relatedItemsByParentId[inverseReference.parentId]
+              const relatedItems = relatedItemsByParentId[inverseReference.parentId] || [];
               if (inverseReference.toMany) {
                 // TODO Order the related items if an order is configured.
                 _.set(inverseReference.item, inverseReference.propertyPath, relatedItems)
+                numReferencesFetched += 1
               } else if (relatedItems.length > 1) {
                 // TODO Provide more detail.
                 throw new PersistenceError(`Found more than one related item for a to-one relationship.`)
               } else if (relatedItems.length == 1) {
                 _.set(inverseReference.item, inverseReference.propertyPath, relatedItems[0])
+                numReferencesFetched += 1
+              } else if (relatedItems.length == 0) {
+                // Set the reference to null, since undefined means it has not been fetched.
+                _.set(inverseReference.item, inverseReference.propertyPath, null)
               }
             }
           }
         }
       }
+
+      return numReferencesFetched
     },
 
     // TODO For collections, what about adding an existing item to the collection? Here we only support creating a new

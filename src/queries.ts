@@ -1,5 +1,6 @@
 export type PropertyPathStr = string
-export type PropertyPath = PropertyPathStr | string[]
+export type PropertyPathArray = (string | number)[]
+export type PropertyPath = PropertyPathStr | PropertyPathArray
 
 export type JsonPathStr = string
 export type JsonPointerStr = string

@@ -164,6 +164,7 @@ export interface Relationship {
   entityTypeName: string
   schema: ConcreteEntitySchema
   foreignKeyPath?: string
+  depthFromParent: number
 }
 
 export function findPropertyInSchema(schema: ConcreteEntitySchema, path: string | string[]): ConcreteEntitySchema | null {
@@ -209,7 +210,8 @@ export function findRelationships(
     schema: ConcreteEntitySchema,
     allowedStorage?: RelationshipStorage[], 
     currentPath = '$',
-    nodesTraversedInPath: ConcreteEntitySchema[] = []
+    nodesTraversedInPath: ConcreteEntitySchema[] = [],
+    depthFromParent = 0
 ) {
   // Do not traverse circular references.
   if (nodesTraversedInPath.includes(schema)) {
@@ -223,7 +225,13 @@ export function findRelationships(
     // This case does not actually arise right now, since we don't allow concrete schemas to use oneOf.
     for (const subschema of oneOf) {
       relationships = relationships.concat(
-        findRelationships(subschema, allowedStorage, `${currentPath}`, [...nodesTraversedInPath, schema])
+        findRelationships(
+          subschema,
+          allowedStorage,
+          `${currentPath}`,
+          [...nodesTraversedInPath, schema],
+          depthFromParent
+        )
       )
     }
   } else {
@@ -232,13 +240,15 @@ export function findRelationships(
         {
           const entityTypeName = (schema as any).entityType as string | undefined
           const storage = (schema as any).storage as RelationshipStorage | undefined
+          const objectIsReference = entityTypeName && storage && ['ref', 'inverse-ref'].includes(storage)
           if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
             const relationship: Relationship = {
               path: currentPath,
               toMany: false,
               storage: storage || 'copy',
               entityTypeName,
-              schema
+              schema,
+              depthFromParent
             }
             if (storage == 'inverse-ref') {
               const foreignKeyPath = (schema as any).foreignKey as string | undefined
@@ -249,14 +259,20 @@ export function findRelationships(
               relationship.foreignKeyPath = foreignKeyPath
             }
             relationships.push(relationship)
-          } else {
-            const propertySchemas = _.get(schema, ['properties'], [])
-            for (const property of _.keys(propertySchemas)) {
-              const subschema = propertySchemas[property]
-              relationships = relationships.concat(
-                findRelationships(subschema, allowedStorage, `${currentPath}.${property}`, [...nodesTraversedInPath, schema])
+          }
+
+          const propertySchemas = _.get(schema, ['properties'], [])
+          for (const property of _.keys(propertySchemas)) {
+            const subschema = propertySchemas[property]
+            relationships = relationships.concat(
+              findRelationships(
+                subschema,
+                allowedStorage,
+                `${currentPath}.${property}`,
+                [...nodesTraversedInPath, schema],
+                objectIsReference ? 0 : depthFromParent + 1
               )
-            }
+            )
           }
         }
         break
@@ -266,13 +282,15 @@ export function findRelationships(
           if (itemsSchema) {
             const entityTypeName = (itemsSchema as any).entityType as string | undefined
             const storage = (itemsSchema as any).storage as RelationshipStorage | undefined
+            const itemsAreReferences = entityTypeName && storage && ['ref', 'inverse-ref'].includes(storage)
             if (entityTypeName && storage && (!allowedStorage || allowedStorage.includes(storage))) {
               const relationship: Relationship = {
                 path: currentPath,
                 toMany: true,
                 storage: storage || 'copy',
                 entityTypeName,
-                schema: itemsSchema
+                schema: itemsSchema,
+                depthFromParent
               }
               if (storage == 'inverse-ref') {
                 const foreignKeyPath = (itemsSchema as any).foreignKey as string | undefined
@@ -283,11 +301,18 @@ export function findRelationships(
                 relationship.foreignKeyPath = foreignKeyPath
               }
               relationships.push(relationship)
-            } else {
-              relationships = relationships.concat(
-                findRelationships(itemsSchema, allowedStorage, `${currentPath}[*]`, [...nodesTraversedInPath, schema])
-              )
             }
+
+            const itemsSchemaWithoutStorage = _.omit(itemsSchema, 'storage')
+            relationships = relationships.concat(
+              findRelationships(
+                itemsSchemaWithoutStorage,
+                allowedStorage,
+                `${currentPath}[*]`,
+                [...nodesTraversedInPath, schema],
+                itemsAreReferences ? 0 : depthFromParent + 1
+              )
+            )
           }
         }
         break
@@ -324,7 +349,8 @@ export function findRelationshipsAlongPath(schema: ConcreteEntitySchema, path: s
             toMany: false,
             storage: storage || 'copy',
             entityTypeName,
-            schema
+            schema,
+            depthFromParent: 0 // TODO Populate this correctly.
           })
         }
 
@@ -351,7 +377,8 @@ export function findRelationshipsAlongPath(schema: ConcreteEntitySchema, path: s
               toMany: true,
               storage: storage || 'copy',
               entityTypeName,
-              schema: itemsSchema
+              schema: itemsSchema,
+              depthFromParent: 0 // TODO Populate this correctly.
             })
           }
 
