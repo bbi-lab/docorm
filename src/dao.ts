@@ -822,7 +822,9 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             jsonPointer.set(items, reference.pointer, referencedItem)
             numReferencesFetched += 1
           } else {
-            // TODO Warn about data inconsistency: a referenced item was missing.
+            // TODO Consider throwing an error here instead.
+            console.log('Warning: Referenced item was missing.')
+            console.log(reference)
           }
         }
       }
