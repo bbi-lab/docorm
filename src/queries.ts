@@ -28,7 +28,7 @@ export interface QueryBetweenClause {
 }
 
 export interface QueryComparisonClause {
-  operator?: '=' | '<' | '>' | '<=' | '>=' | '!=' | 'like',
+  operator?: '=' | '<' | '>' | '<=' | '>=' | '!=' | 'like' | '~',
   l: QueryConstantExpression | QueryPathExpression,
   r: QueryConstantExpression | QueryPathExpression
 }

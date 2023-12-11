@@ -329,6 +329,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
             */
           }
           break
+        case '~':
         case '>=':
         case '>':
         case '<':
