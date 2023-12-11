@@ -1,16 +1,24 @@
+/**
+ * Utilities for dynamically importing JavaScript modules from a directory
+ *
+ * @module lib/import-dir.ts
+ */
+
 import {readdir, stat} from 'fs/promises'
 import path from 'path'
 
 interface DirectoryImportOptions {
+  /** A flag indicating whether to import modules recursively from subdirectories. */
   recurse: boolean,
+  /** An array of filename extensions to import. */
   extensions: string[]
+  /** Type assertion (for importing JSON files). */
+  assertType?: 'json'
 }
 
 const DEFAULT_DIRECTORY_IMPORT_OPTIONS = {
-  /** A flag indicating whether to import modules recursively from subdirectories. */
   recurse: false,
-  /** An array of filename extensions to import. */
-  extensions: ['js', 'json']
+  extensions: ['js']
 }
 
 /**
@@ -18,8 +26,8 @@ const DEFAULT_DIRECTORY_IMPORT_OPTIONS = {
  *
  * Any text following the last period in the filename is considered to be the extension.
  *
- * @param filename - The filename.
- * @return - The extension, or TODO the empty string if there is no extension.
+ * @param filename The filename.
+ * @return The extension, or TODO the empty string if there is no extension.
  */
 function filenameExtension(filename: string): string {
   return filename.slice((Math.max(0, filename.lastIndexOf('.')) || Infinity) + 1)
@@ -43,11 +51,11 @@ interface DirectoryImportCatalogue {
  * const availableModules = await catalogueDirectoryImports(path.join(__dirname, '../some/directory'), {recurse: true})
  * </code>
  *
- * @param directoryPath - The path of the directory to catalogue.
- * @param options - Import options.
- * @return - An object whose property keys are the module names (filenames without extensions) and property
- *   values are the paths of the module files. Paths begin with directoryPath, so they are absolute or relative
- *   according to whether directoryPath is absolute or relative.
+ * @param directoryPath The path of the directory to catalogue.
+ * @param options Import options. The assertType property must be set when importing JSON files.
+ * @return An object whose property keys are the module names (filenames without extensions) and property values are the
+ *   paths of the module files. Paths begin with directoryPath, so they are absolute or relative according to whether
+ *   directoryPath is absolute or relative.
  */
 export async function catalogueDirectoryImports(directoryPath: string, options: DirectoryImportOptions = DEFAULT_DIRECTORY_IMPORT_OPTIONS): Promise<DirectoryImportCatalogue> {
   const {extensions, recurse} = Object.assign({}, DEFAULT_DIRECTORY_IMPORT_OPTIONS, options)
@@ -88,7 +96,7 @@ export async function catalogueDirectoryImports(directoryPath: string, options: 
  * </code>
  *
  * @param directoryPath - The path of the directory to import.
- * @param options - Import options.
+ * @param options - Import options, including an import assert
  * @return - An object whose property keys are the module names (filenames without extensions) and property
  *   values are the default exports of each module. If the import is recursive, there is also a key for each
  *   subdirectory, whose value is another object of the same sort.
@@ -112,7 +120,11 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
           // console.log(`Importing file ${fullPath}`)
 
           // Using file:// makes this work with Windows paths that begin with drive letters.
-          const {default: defaultExport} = await import(`file://${fullPath}`)
+          const importOptions: ImportCallOptions = {}
+          if (options.assertType) {
+            importOptions.assert = {type: options.assertType}
+          }
+          const {default: defaultExport} = await import(`file://${fullPath}`, importOptions)
           result[submoduleName] = defaultExport
         }
       }
