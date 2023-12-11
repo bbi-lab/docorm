@@ -2,13 +2,21 @@
 
 Data persistence manager for document-oriented data
 
+## Prerequisites
+
+DocORM is compatible with Node 16 and higher.
+
 ## Installation
 
+Install the latest version from npmjs.com:
+```
+npm install docorm
+```
+
+If you need to use the latest version on GitHub instead, install it this way:
 ```
 npm install docorm@git+ssh://github.com/bbi-lab/docorm
 ```
-
-The package will soon be available through npmjs.com.
 
 ## Setup
 
@@ -85,6 +93,11 @@ Any validation keywords may be used, but currently only the following keywords a
 - `type`
 - `enum`
 - 
+
+#### Metadata keywords
+
+All metadata keywords are allowed, but these do not entail any behavior in DocORM.
+
 
 
 ## Data models
