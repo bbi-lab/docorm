@@ -105,37 +105,42 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
   const {extensions, recurse} = Object.assign({}, DEFAULT_DIRECTORY_IMPORT_OPTIONS, options)
   const result: {[submoduleName: string]: any} = {}
   const filenames = (await isDirectory(directoryPath)) ? (await readdir(directoryPath)) : []
-  await Promise.all(
-    filenames.map(async (filename) => {
-      const fullPath = path.join(directoryPath, filename)
-      const submoduleName = path.basename(filename, path.extname(filename))
-      const stats = await stat(fullPath)
-      if (stats.isDirectory()) {
-        if (recurse) {
-          result[submoduleName] = await importDirectory(fullPath, options)
-        }
-      } else {
-        const extension = filenameExtension(filename)
-        if (!extensions || extensions.includes(extension)) {
-          // console.log(`Importing file ${fullPath}`)
 
-          // Using file:// makes this work with Windows paths that begin with drive letters.
-          const importOptions: ImportCallOptions = {}
-          if (options.assertType) {
-            importOptions.assert = {type: options.assertType}
-          }
-          const {default: defaultExport} = await import(`file://${fullPath}`, importOptions)
-          result[submoduleName] = defaultExport
-        }
+  // TODO Order of filenames should not matter, but is being applied here to ensure entity types are loaded
+  // in the same order each time, resulting in consistent calculated concrete schemas.
+  for (const filename of filenames.sort().reverse()) {
+    // await Promise.all(
+    //   filenames.map(async (filename) => {
+    const fullPath = path.join(directoryPath, filename)
+    const submoduleName = path.basename(filename, path.extname(filename))
+    const stats = await stat(fullPath)
+    if (stats.isDirectory()) {
+      if (recurse) {
+        result[submoduleName] = await importDirectory(fullPath, options)
       }
-    })
-  )
+    } else {
+      const extension = filenameExtension(filename)
+      if (!extensions || extensions.includes(extension)) {
+        // console.log(`Importing file ${fullPath}`)
+
+        // Using file:// makes this work with Windows paths that begin with drive letters.
+        const importOptions: ImportCallOptions = {}
+        if (options.assertType) {
+          importOptions.assert = {type: options.assertType}
+        }
+        const {default: defaultExport} = await import(`file://${fullPath}`, importOptions)
+        result[submoduleName] = defaultExport
+      }
+    }
+    //   })
+    // )
+  }
   return result
 }
 
 /**
  * Determine whether a path names a directory in the filesystem.
- * 
+ *
  * @param path - The path to check.
  * @returns - True if the path is a directory, false otherwise.
  */
