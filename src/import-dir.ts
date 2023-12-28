@@ -62,7 +62,7 @@ export async function catalogueDirectoryImports(directoryPath: string, options: 
   const result: DirectoryImportCatalogue = {}
   const filenames = (await isDirectory(directoryPath)) ? (await readdir(directoryPath)) : []
   await Promise.all(
-    filenames.map(async (filename) => {
+    filenames.map(async (filename: string) => {
       const fullPath = path.join(directoryPath, filename)
       const submoduleName = path.basename(filename, path.extname(filename))
       const stats = await stat(fullPath)
@@ -109,8 +109,6 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
   // TODO Order of filenames should not matter, but is being applied here to ensure entity types are loaded
   // in the same order each time, resulting in consistent calculated concrete schemas.
   for (const filename of filenames.sort().reverse()) {
-    // await Promise.all(
-    //   filenames.map(async (filename) => {
     const fullPath = path.join(directoryPath, filename)
     const submoduleName = path.basename(filename, path.extname(filename))
     const stats = await stat(fullPath)
@@ -132,8 +130,6 @@ export async function importDirectory(directoryPath: string, options: DirectoryI
         result[submoduleName] = defaultExport
       }
     }
-    //   })
-    // )
   }
   return result
 }
