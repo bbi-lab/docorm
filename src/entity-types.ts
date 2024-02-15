@@ -139,7 +139,7 @@ export interface EntityTypeDefinition {
   }
 }
 
-export interface EntityType extends Omit<EntityTypeDefinition, 'parent' | 'abstract' | 'schema'> {
+export interface EntityType extends Omit<EntityTypeDefinition, 'abstract' | 'parent'> {
   parent?: EntityType
   abstract: boolean
   schema: EntitySchema
@@ -175,7 +175,7 @@ export async function registerEntityTypes(dirPath: string) {
 
 export function getEntityType(name: string, {required = true} = {}): EntityType {
   if (required && !entityTypes[name]) {
-    throw new InternalError(`Entity type "${name}' is unknown.`)
+    throw new InternalError(`Entity type "${name}" is unknown.`)
   }
   return entityTypes[name]
 }
@@ -324,7 +324,7 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
   const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
   const schema = getSchema(definition.schemaPath, 'model')
   if (!schema) {
-    throw new InternalError(`Entity type "${definition.name} has no schema.`)
+    throw new InternalError(`Entity type "${definition.name}" has no schema.`)
   }
   const entityType: EntityType = _.merge({}, parentEntityType || {}, definition, {
     parent: parentEntityType,
