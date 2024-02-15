@@ -111,19 +111,21 @@ export function makeSchemaConcrete(
     const path = _.trimStart((schema as any).$ref, '/').split('/')
     if ((state.knownConcreteSubschemas[(schema as any).$ref] != null) && ((schema as any).$ref != currentSchemaNewRef)) {
       concreteSchema = knownConcreteSubschemas[(schema as any).$ref]
+      if (currentSchemaNewRef) {
+        state.knownConcreteSubschemas[currentSchemaNewRef] = concreteSchema
+      }
     } else {
       // TODO Handle error if not found
       const subschema = getSchema(path, schemaType, namespace)
       if (!subschema) {
         throw new InternalError(`Schema refers to unknown subschema with $ref "${path}".`)
       }
-      concreteSchema = makeSchemaConcrete(subschema, schemaType, namespace, {
+      Object.assign(concreteSchema, makeSchemaConcrete(subschema, schemaType, namespace, {
         knownConcreteSubschemas,
         currentSchemaNewRef: (schema as any).$ref
-      })
+      }))
     }
     if ((schema as any).entityType || (schema as any).foreignKey || (schema as any).storage) {
-      concreteSchema = _.cloneDeep(concreteSchema)
       // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
       Object.assign(concreteSchema, _.pick(schema, ['entityType', 'foreignKey', 'storage']));
     }
