@@ -69,6 +69,10 @@ function dottedPathToArray(path: PropertyPathStr): PropertyPathArray {
   return pathArray
 }
 
+export function pathDepth(path: PropertyPathStr) {
+  return dottedPathToArray(path).length
+}
+
 function arrayToDottedPath(pathArray: PropertyPathArray): PropertyPathStr {
   if (pathArray.length == 0) {
       return ''
@@ -654,12 +658,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       }
     },
 
-    // TODO Fetch nested references: a -> b -> c. After fetching all of a's references, collect the newly added items,
-    // and fetch references for each of them (preferably together instead of sequentially).
     fetchRelationships: async function(
       items: Entity[],
       pathsToExpand?: string[],
-      {client = undefined, entityTypeAtPathPrefix = undefined, pathPrefix = undefined}: {client?: Client, entityTypeAtPathPrefix?: EntityType, pathPrefix?: string} = {}
+      {client = undefined, entityTypeAtPathPrefix = undefined, maxDepth = undefined, pathPrefix = undefined}:
+      {client?: Client, entityTypeAtPathPrefix?: EntityType, maxDepth?: number, pathPrefix?: string} = {}
     ) {
       if (pathsToExpand && pathsToExpand.length == 0) {
         return
@@ -681,7 +684,12 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const daos: {[entityTypeName: string]: Dao} = {}
 
       // Get all related item definitions in the current item's entity type.
-      const relationships = findRelationships(currentEntityType.concreteSchema, ['ref', 'inverse-ref'])
+      const maxRelationshipDepth = pathsToExpand ? Math.max(0, ...pathsToExpand.map((p) => pathDepth(p))) : maxDepth
+      const relationships = findRelationships(
+        currentEntityType.concreteSchema,
+        ['ref', 'inverse-ref'],
+        maxRelationshipDepth
+      )
 
       /*
       const groupedNestedPaths: {[pathPrefix: string]: string[]} = {}

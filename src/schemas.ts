@@ -1,5 +1,6 @@
 import _ from 'lodash'
 
+import {pathDepth} from './dao.js'
 import {InternalError} from './errors.js'
 import {importDirectory} from './import-dir.js'
 
@@ -211,12 +212,17 @@ export function findPropertyInSchema(schema: ConcreteEntitySchema, path: string 
 export function findRelationships(
     schema: ConcreteEntitySchema,
     allowedStorage?: RelationshipStorage[], 
+    maxDepth: number | undefined = undefined,
     currentPath = '$',
     nodesTraversedInPath: ConcreteEntitySchema[] = [],
     depthFromParent = 0
 ) {
-  // Do not traverse circular references.
-  if (nodesTraversedInPath.includes(schema)) {
+  if (maxDepth == undefined && nodesTraversedInPath.includes(schema)) {
+    // If no maximum depth was specified, do not traverse circular references.
+    // TODO This does not seem to work. nodesTraversedInPath.includes(schema) isn't catching the circularity.
+    return []
+  } else if (maxDepth != undefined && pathDepth(currentPath) > maxDepth) {
+    // If we have exceeded the maximum depth, stop traversing the schema.
     return []
   }
 
@@ -230,6 +236,7 @@ export function findRelationships(
         findRelationships(
           subschema,
           allowedStorage,
+          maxDepth,
           `${currentPath}`,
           [...nodesTraversedInPath, schema],
           depthFromParent
@@ -270,6 +277,7 @@ export function findRelationships(
               findRelationships(
                 subschema,
                 allowedStorage,
+                maxDepth,
                 `${currentPath}.${property}`,
                 [...nodesTraversedInPath, schema],
                 objectIsReference ? 0 : depthFromParent + 1
@@ -310,6 +318,7 @@ export function findRelationships(
               findRelationships(
                 itemsSchemaWithoutStorage,
                 allowedStorage,
+                maxDepth,
                 `${currentPath}[*]`,
                 [...nodesTraversedInPath, schema],
                 itemsAreReferences ? 0 : depthFromParent + 1
