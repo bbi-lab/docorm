@@ -44,7 +44,7 @@ export interface MakeSchemaConcreteState {
   knownConcreteSubschemas: {
     [path: string]: EntitySchema
   },
-  currentSchemaNewRef?: string
+  cachedSchemaKeyToStore?: string
 }
 
 const INITIAL_MAKE_SCHEMA_CONCRETE_STATE = {
@@ -59,11 +59,11 @@ export function makeSchemaConcrete(
     namespace: string | undefined = undefined,
     state: MakeSchemaConcreteState = INITIAL_MAKE_SCHEMA_CONCRETE_STATE
 ) {
-  const {knownConcreteSubschemas, currentSchemaNewRef} = state
+  const {knownConcreteSubschemas, cachedSchemaKeyToStore} = state
   let concreteSchema: EntitySchema = {}
 
-  if (currentSchemaNewRef) {
-    state.knownConcreteSubschemas[currentSchemaNewRef] = concreteSchema
+  if (cachedSchemaKeyToStore) {
+    state.knownConcreteSubschemas[cachedSchemaKeyToStore] = concreteSchema
   }
   if ((schema as any).allOf) {
     const concreteSubschemas: EntitySchema[] = (schema as any).allOf.map((subschema: EntitySchema) =>
@@ -110,10 +110,11 @@ export function makeSchemaConcrete(
     })
   } else if ((schema as any).$ref) {
     const path = _.trimStart((schema as any).$ref, '/').split('/')
-    if ((state.knownConcreteSubschemas[(schema as any).$ref] != null) && ((schema as any).$ref != currentSchemaNewRef)) {
-      concreteSchema = knownConcreteSubschemas[(schema as any).$ref]
-      if (currentSchemaNewRef) {
-        state.knownConcreteSubschemas[currentSchemaNewRef] = concreteSchema
+    const cachedSchemaKey = `${(schema as any).$ref}|${(schema as any).entityType}|${(schema as any).foreignKey}|${(schema as any).storage}`
+    if ((state.knownConcreteSubschemas[cachedSchemaKey] != null) && (cachedSchemaKey != cachedSchemaKeyToStore)) {
+      concreteSchema = knownConcreteSubschemas[cachedSchemaKey]
+      if (cachedSchemaKeyToStore) {
+        state.knownConcreteSubschemas[cachedSchemaKeyToStore] = concreteSchema
       }
     } else {
       // TODO Handle error if not found
@@ -123,11 +124,10 @@ export function makeSchemaConcrete(
       }
       Object.assign(concreteSchema, makeSchemaConcrete(subschema, schemaType, namespace, {
         knownConcreteSubschemas,
-        currentSchemaNewRef: (schema as any).$ref
+        cachedSchemaKeyToStore: cachedSchemaKey
       }))
     }
     if ((schema as any).entityType || (schema as any).foreignKey || (schema as any).storage) {
-      // TODO Could cause problems if we had the same $ref with different entityTypes or storage.
       Object.assign(concreteSchema, _.pick(schema, ['entityType', 'foreignKey', 'storage']));
     }
   } else {
