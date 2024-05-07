@@ -1,8 +1,8 @@
 import _ from 'lodash'
 
-import {pathDepth} from './dao.js'
 import {InternalError} from './errors.js'
 import {importDirectory} from './import-dir.js'
+import {pathDepth} from './paths.js'
 
 export type JSONSchema = object
 export type EntitySchema = JSONSchema

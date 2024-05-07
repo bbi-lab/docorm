@@ -1,10 +1,3 @@
-export type PropertyPathStr = string
-export type PropertyPathArray = (string | number)[]
-export type PropertyPath = PropertyPathStr | PropertyPathArray
-
-export type JsonPathStr = string
-export type JsonPointerStr = string
-
 export type QueryConstant = string | number | boolean | null
 export type QueryFullTextSearchContext = 'default'
 export type QueryPath = string

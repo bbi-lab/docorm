@@ -34,5 +34,6 @@ export function makeDocOrmMiddleware() {
 export {Dao, db, makeDao}
 export * from './entity-types.js'
 export * from './errors.js'
+export * from './paths.js'
 export * from './queries.js'
 export * from './schemas.js'

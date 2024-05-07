@@ -4,10 +4,10 @@ import {Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
 import * as db from './db.js'
-import {Entity, EntityType, Id} from '../entity-types.js'
+import {Entity, EntityType, EntityTypeMapping, Id, PropertyMapping} from '../entity-types.js'
 import {PersistenceError} from '../errors.js'
+import {PropertyPath, arrayToDottedPath} from '../paths.js'
 import {
-  PropertyPath,
   QueryClause,
   queryClauseIsAnd,
   queryClauseIsFullTextSearch,
@@ -44,7 +44,7 @@ export function fetchResultsIsStream(x: FetchResults | FetchResultsStream): x is
   return !_.isArray(x)
 }
 
-function sqlExpressionFromQueryExpression(expression: QueryExpression, parameterCount = 0): SqlExpression {
+function sqlExpressionFromQueryExpression(expression: QueryExpression, mapping: EntityTypeMapping, parameterCount = 0): SqlExpression {
   if (queryExpressionIsConstant(expression) || queryExpressionIsConstantList(expression)) {
     if (expression.constant == null) {
       return {
@@ -59,13 +59,16 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     }
   } else if (queryExpressionIsPath(expression)) {
     return {
-      expression: coerceType(sqlColumnFromPath(expression.path), expression.sqlType),
+      expression: coerceType(sqlColumnFromPath(expression.path, mapping), expression.sqlType),
       parameterValues: []
     }
   } else if (queryExpressionIsFullText(expression)) {
     // TODO Support named full-text search contexts, like {text: 'default'}, {text: 'ids'}, {text: 'comments'}
+    if (!mapping.jsonColumn) {
+      throw new PersistenceError(`Full-text search cannot be applied to an entity type that lacks a JSON column).`)
+    }
     return {
-      expression: 'data::text',
+      expression: `${mapping.jsonColumn}::text`,
       parameterValues: []
     }
   } else if (queryExpressionIsFunction(expression)) {
@@ -73,7 +76,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const jsonSubexpression of expression.parameters || []) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression(jsonSubexpression, parameterCount)
+          sqlExpressionFromQueryExpression(jsonSubexpression, mapping, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }
@@ -91,7 +94,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const jsonSubexpression of expression.coalesce) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression(jsonSubexpression, parameterCount)
+          sqlExpressionFromQueryExpression(jsonSubexpression, mapping, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }
@@ -115,7 +118,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const operatorParameter of expression.parameters || []) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression(operatorParameter, parameterCount)
+          sqlExpressionFromQueryExpression(operatorParameter, mapping, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }
@@ -145,7 +148,7 @@ function sqlExpressionFromQueryExpression(expression: QueryExpression, parameter
     const parameterValues: any[] = []
     for (const rangePart of expression.range) {
       const {expression: subexpression, parameterValues: subexpressionParameterValues} =
-          sqlExpressionFromQueryExpression(rangePart, parameterCount)
+          sqlExpressionFromQueryExpression(rangePart, mapping, parameterCount)
       if (subexpression) {
         subexpressions.push(subexpression)
       }
@@ -198,13 +201,21 @@ function propertyPathStringToArray(pathStr: string, quoteNonIndexElements: boole
 }
 
 // TODO Perhaps support arrays etc. in paths.
-function sqlColumnFromPath(path: string) {
+function sqlColumnFromPath(path: string, mapping: EntityTypeMapping) {
+  const propertyMapping = (mapping.propertyMappings || []).find((m) => m.propertyPath == path)
+  if (propertyMapping) {
+    return propertyMapping.column
+  }
   if (path == '_id') {
     return 'id'
   }
-  const postgresComponents = propertyPathStringToArray(path, true)
-  postgresComponents.unshift('data')
-  return postgresComponents.slice(0, -1).join('->') + '->>' + _.last(postgresComponents)
+  if (!mapping.jsonColumn) {
+    throw new PersistenceError(`Entity type has unmapped properties and lacks a JSON column.`, {propertyPath: path})
+  } else {
+    const postgresComponents = propertyPathStringToArray(path, true)
+    postgresComponents.unshift(`"${mapping.jsonColumn}"`)
+    return postgresComponents.slice(0, -1).join('->') + '->>' + _.last(postgresComponents)
+  }
 }
 
 function coerceType(sqlExpression: string, sqlType: string | null | undefined) {
@@ -214,7 +225,9 @@ function coerceType(sqlExpression: string, sqlType: string | null | undefined) {
   return sqlExpression
 }
 
-function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCount = 0): SqlClause {
+function sqlQueryCriteriaClauseFromQueryClause(
+    clause: QueryClause | undefined, mapping: EntityTypeMapping, parameterCount = 0)
+: SqlClause {
   if (clause === false) {
     // We don't even run the query in this case, but for completeness we will produce correct SQL.
     return {sqlClause: '0 = 1', parameterValues: []}
@@ -227,7 +240,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
     const parameterValues: any[] = []
     for (const subclause of subclauses) {
       const {sqlClause: sqlSubclause, parameterValues: subclauseParameterValues} =
-          sqlQueryCriteriaClauseFromQueryClause(subclause, parameterCount)
+          sqlQueryCriteriaClauseFromQueryClause(subclause, mapping, parameterCount)
       sqlSubclauses.push(sqlSubclause)
       if (subclauseParameterValues) {
         Array.prototype.push.apply(parameterValues, subclauseParameterValues)
@@ -253,7 +266,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
     }
   } else if (queryClauseIsNot(clause)) {
     const subclause = clause.not
-    const {sqlClause: sqlSubclause, parameterValues} = sqlQueryCriteriaClauseFromQueryClause(subclause, parameterCount)
+    const {sqlClause: sqlSubclause, parameterValues} = sqlQueryCriteriaClauseFromQueryClause(subclause, mapping, parameterCount)
     if (sqlSubclause) {
       return {
         sqlClause: `NOT (${sqlSubclause})`,
@@ -275,10 +288,10 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
     }
 
     const {expression: leftExpression = null, parameterValues: leftExpressionParameterValues = null} =
-        clause.l ? sqlExpressionFromQueryExpression(clause.l, parameterCount) : {}
+        clause.l ? sqlExpressionFromQueryExpression(clause.l, mapping, parameterCount) : {}
     parameterCount += leftExpressionParameterValues ? leftExpressionParameterValues.length : 0
     const {expression: rightExpression = null, parameterValues: rightExpressionParameterValues = null} =
-        clause.r ? sqlExpressionFromQueryExpression(clause.r, parameterCount) : {}
+        clause.r ? sqlExpressionFromQueryExpression(clause.r, mapping, parameterCount) : {}
     parameterCount += rightExpressionParameterValues ? rightExpressionParameterValues.length : 0
 
     let operator: string | null = null
@@ -304,7 +317,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
             operator = 'IS'
             /*
             // We don't really need to use @? to allow the case where the path doesn't exist, and using @? slows the query
-            // unless we have a GIN index on the data column.
+            // unless we have a GIN index on the JSON column.
             clauseWrapper = (clause) => `(NOT data @? '$.${jsonClause.l.path}') OR (${clause})`
             */
           }
@@ -312,7 +325,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
             operator = 'IS'
             /*
             // We don't really need to use @? to allow the case where the path doesn't exist, and using @? slows the query
-            // unless we have a GIN index on the data column.
+            // unless we have a GIN index on the JSON column.
             clauseWrapper = (clause) => `(NOT data @? '$.${jsonClause.r.path}') OR (${clause})`
             */
           }
@@ -324,7 +337,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
             operator = 'IS NOT'
             /*
             // We don't really need to use @? to check that the path exists, and using @? slows the query unless we have a
-            // GIN index on the data column.
+            // GIN index on the JSON column.
             clauseWrapper = (clause) => `(data @? '$.${jsonClause.l.path}') AND (${clause})`
             */
           }
@@ -344,7 +357,7 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
             clauseWrapper = (sqlClause) => `((${leftExpression} IS NULL) OR (${sqlClause}))`
             /*
             // We don't really need to use @? to allow the case where the path doesn't exist, and using @? slows the query
-            // unless we have a GIN index on the data column.
+            // unless we have a GIN index on the JSON column.
             clauseWrapper = (clause) =>
               `((NOT data @? '$.${jsonClause.l.path}') OR (${leftExpression} IS NULL) OR (${clause}))`
             */
@@ -375,20 +388,35 @@ function sqlQueryCriteriaClauseFromQueryClause(clause?: QueryClause, parameterCo
 }
 
 function makeSqlQueryCriteriaClauses(entityType: EntityType, query?: QueryClause) {
-  const entityTypeClause = 'data->>\'_type\' = $1'
-  const parameterValues = [entityType.name]
+  if (!entityType.mapping) {
+    throw new PersistenceError(
+      `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+      {entityTypeName: entityType.name}
+    )
+  }
+  const mapping = entityType.mapping
+  const entityTypeClause = mapping.jsonColumn ? `"${mapping.jsonColumn}"->>\'_type\' = $1` : undefined
+  const parameterValues = mapping.jsonColumn ? [entityType.name] : []
   const {sqlClause: querySqlClause = null, parameterValues: queryParameterValues} =
-      sqlQueryCriteriaClauseFromQueryClause(query, parameterValues.length)
+      sqlQueryCriteriaClauseFromQueryClause(query, entityType.mapping, parameterValues.length)
   Array.prototype.push.apply(parameterValues, queryParameterValues)
+  const clauses = [entityTypeClause, querySqlClause].filter(Boolean)
   return {
-    sqlClause: '(' + [entityTypeClause, querySqlClause].filter(Boolean).join(') AND (') + ')',
+    sqlClause: clauses.length > 0 ? '(' + clauses.join(') AND (') + ')' : null,
     parameterValues
   }
 }
 
 function makeSqlQueryCriteriaClausesFromRawWhereClause(entityType: EntityType, whereClause: string | null, whereClauseParameters: any[]) {
-  const entityTypeClause = `data->>'_type' = $${whereClauseParameters.length + 1}`
-  const parameterValues = [...whereClauseParameters, entityType.name]
+  if (!entityType.mapping) {
+    throw new PersistenceError(
+      `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+      {entityTypeName: entityType.name}
+    )
+  }
+  const mapping = entityType.mapping
+  const entityTypeClause = mapping.jsonColumn ? `"${mapping.jsonColumn}"->>\'_type\' = $${whereClauseParameters.length + 1}` : undefined
+  const parameterValues = [...whereClauseParameters, ...mapping.jsonColumn ? [entityType.name] : []]
   return {
     sqlClause: '(' + [entityTypeClause, whereClause].filter(Boolean).join(') AND (') + ')',
     parameterValues
@@ -396,6 +424,13 @@ function makeSqlQueryCriteriaClausesFromRawWhereClause(entityType: EntityType, w
 }
 
 function makeQueryOrderPhrase(entityType: EntityType, order: QueryOrder | null | undefined) {
+  if (!entityType.mapping) {
+    throw new PersistenceError(
+      `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+      {entityTypeName: entityType.name}
+    )
+  }
+  const mapping = entityType.mapping
   if ((order == null) || (order.length == 0)) {
     return ''
   }
@@ -404,9 +439,33 @@ function makeQueryOrderPhrase(entityType: EntityType, order: QueryOrder | null |
     const direction = (_.isArray(orderElement) && (orderElement.length > 1)
         && ['asc', 'desc'].includes(orderElement[1].toString().toLowerCase())) ?
         orderElement[1].toString().toLowerCase() : 'asc'
-    return `${sqlExpressionFromQueryExpression(path).expression} ${direction}`
+    return `${sqlExpressionFromQueryExpression(path, mapping).expression} ${direction}`
   })
   return ` ORDER BY ${orderPhrases.join(', ')}`
+}
+
+function getMappedQueryColumns(mapping: EntityTypeMapping, propertiesToExclude: PropertyPath[]) {
+  const propertyPathsToExclude = propertiesToExclude.map((p) => propertyPathIsString(p) ? p : arrayToDottedPath(p))
+  return (mapping.propertyMappings || [])
+      .filter((m) => !propertyPathsToExclude.includes(m.propertyPath))
+      .map((m) => m.column)
+}
+
+function sqlFetchColumnList(mapping: EntityTypeMapping, propertiesToExclude: PropertyPath[]) {
+  const propertyBlacklistPhrase = propertyBlacklistToPhrase(propertiesToExclude)
+  return [
+    mapping.idColumn,
+    ...mapping.jsonColumn ? [`${mapping.jsonColumn}${propertyBlacklistPhrase} AS _docorm_data`] : [],
+    ...getMappedQueryColumns(mapping, propertiesToExclude)
+  ].join(', ')
+}
+
+function rowToEntity(row: any, mapping: EntityTypeMapping): Entity {
+  const entity = {...row._docorm_data || {}, _id: row[mapping.idColumn]}
+  for (const m of mapping.propertyMappings || []) {
+    _.set(entity, m.propertyPath, row[m.column])
+  }
+  return entity
 }
 
 interface CountOptions {
@@ -443,9 +502,16 @@ const FETCH_DEFAULT_OPTIONS: FetchOptions = {
 const makeRawDao = function(entityType: EntityType) {
   return {
     entityType,
-
+    
     count: async function(query?: QueryClause, options: CountOptions = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`count failed because type "${entityType.name} has no table.`)
       }
       const {client} = options
@@ -455,31 +521,38 @@ const makeRawDao = function(entityType: EntityType) {
       const {sqlClause: clause, parameterValues} = makeSqlQueryCriteriaClauses(entityType, query)
       const whereClause = clause ? ` WHERE ${clause}` : ''
       const {rows} = await db.query(
-        `SELECT count(*) AS count FROM "${entityType.table}"${whereClause}`, parameterValues, client
+        `SELECT count(*) AS count FROM "${mapping.table}"${whereClause}`, parameterValues, client
       )
       return rows[0].count
     },
 
     fetch: async function(query?: QueryClause, options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS): Promise<FetchResults | FetchResultsStream> {
-      if (!entityType.table) {
-        throw new PersistenceError(`fetch failed because type "${entityType.name} has no table.`)
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
+        throw new PersistenceError(`fetch failed because type "${entityType.name}" has no table.`)
       }
       if (query === false) {
         return []
       }
+      const columns = sqlFetchColumnList(mapping, options.propertyBlacklist || [])
       const offsetPhrase = options.offset ? ` OFFSET ${options.offset}` : ''
       const limitPhrase = options.limit ? ` LIMIT ${options.limit}` : ''
       const {sqlClause: clause, parameterValues} = makeSqlQueryCriteriaClauses(entityType, query)
       const whereClause = clause ? ` WHERE ${clause}` : ''
-      const propertyBlacklistPhrase = propertyBlacklistToPhrase(options.propertyBlacklist)
       const orderPhrase = makeQueryOrderPhrase(entityType, options.order)
       if (options.stream) {
         const rowToItem = new Transform({
           objectMode: true,
-          transform: (row, _, callback) => callback(null, {...row.data, _id: row.id})
+          transform: (row, _, callback) => callback(null, rowToEntity(row, mapping))
         })
         const queryStream = await db.queryStream(
-          `SELECT id, data${propertyBlacklistPhrase} AS data FROM "${entityType.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
+          `SELECT ${columns} FROM "${mapping.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
           parameterValues,
           options.client
         )
@@ -487,11 +560,11 @@ const makeRawDao = function(entityType: EntityType) {
         // return resultsStream.pipe(rowToItem)
       } else {
         const {rows} = await db.query(
-          `SELECT id, data${propertyBlacklistPhrase} AS data FROM "${entityType.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
+          `SELECT ${columns} FROM "${mapping.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
           parameterValues,
           options.client
         )
-        return rows.map((row) => ({...row.data, _id: row.id}))
+        return rows.map((row) => rowToEntity(row, mapping))
       }
     },
 
@@ -500,119 +573,166 @@ const makeRawDao = function(entityType: EntityType) {
         whereClauseParameters = [],
         options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS
     ) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`fetchWithSql failed because type "${entityType.name} has no table.`)
       }
+      const columns = sqlFetchColumnList(mapping, options.propertyBlacklist || [])
       const offsetPhrase = options.offset ? ` OFFSET ${options.offset}` : ''
       const limitPhrase = options.limit ? ` LIMIT ${options.limit}` : ''
       const {sqlClause: clause, parameterValues} =
           makeSqlQueryCriteriaClausesFromRawWhereClause(entityType, whereClauseSql, whereClauseParameters)
       const whereClause = clause ? ` WHERE ${clause}` : ''
-      const propertyBlacklistPhrase = propertyBlacklistToPhrase(options.propertyBlacklist)
       const orderPhrase = makeQueryOrderPhrase(entityType, options.order)
       const {rows} = await db.query(
-        `SELECT id, data${propertyBlacklistPhrase} AS data FROM "${entityType.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
+        `SELECT ${columns} FROM "${mapping.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
         parameterValues,
         options.client
       )
-      return rows.map((row) => ({...row.data, _id: row.id}))
+      return rows.map((row) => rowToEntity(row, mapping))
     },
 
     fetchAll: async function(options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`fetchAll failed because type "${entityType.name} has no table.`)
       }
+      const columns = sqlFetchColumnList(mapping, options.propertyBlacklist || [])
       const offsetPhrase = options.offset ? ` OFFSET ${options.offset}` : ''
       const limitPhrase = options.limit ? ` LIMIT ${options.limit}` : ''
-      const whereClause = ' WHERE data->>\'_type\' = $1'
-      const parameterValues = [entityType.name]
-      const propertyBlacklistPhrase = propertyBlacklistToPhrase(options.propertyBlacklist)
+      const whereClause = mapping.jsonColumn ? ` WHERE "${mapping.jsonColumn}"->>\'_type\' = $1` : ''
+      const parameterValues = mapping.jsonColumn ? [entityType.name] : []
       const orderPhrase = makeQueryOrderPhrase(entityType, options.order)
       if (options.stream) {
         const rowToItem = new Transform({
           objectMode: true,
-          transform: (row, _, callback) => callback(null, {...row.data, _id: row.id})
+          transform: (row, _, callback) => callback(null, rowToEntity(row, mapping))
         })
         const queryStream = await db.queryStream(
-          `SELECT id, data${propertyBlacklistPhrase} AS data FROM "${entityType.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
+          `SELECT ${columns} FROM "${mapping.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
           parameterValues,
           options.client
         )
         return {run: queryStream.run, stream: queryStream.stream.pipe(rowToItem)}
-        // return resultsStream.pipe(rowToItem)
       } else {
-        /*
         const {rows} = await db.query(
-          `SELECT id, data FROM "${entityType.table}" WHERE`
-              + ` data->>'_type' = $1${orderPhrase}${offsetPhrase}${limitPhrase}`,
-          [entityType.name],
-          client
-        )
-        */
-        const {rows} = await db.query(
-          `SELECT id, data${propertyBlacklistPhrase} AS data FROM "${entityType.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
+          `SELECT ${columns} FROM "${mapping.table}"${whereClause}${orderPhrase}${offsetPhrase}${limitPhrase}`,
           parameterValues,
           options.client
         )
-        return rows.map((row) => ({...row.data, _id: row.id}))
+        return rows.map((row) => rowToEntity(row, mapping))
       }
     },
 
     fetchById: async function(ids: Id[], options: FetchOptionsInput = FETCH_DEFAULT_OPTIONS) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`fetchById failed because type "${entityType.name} has no table.`)
       }
+      const columns = sqlFetchColumnList(mapping, options.propertyBlacklist || [])
       const offsetPhrase = options.offset ? ` OFFSET ${options.offset}` : ''
       const limitPhrase = options.limit ? ` LIMIT ${options.limit}` : ''
-      const propertyBlacklistPhrase = propertyBlacklistToPhrase(options.propertyBlacklist)
       const orderPhrase = makeQueryOrderPhrase(entityType, options.order)
       const {rows} = await db.query(
-        `SELECT data${propertyBlacklistPhrase} AS data FROM "${entityType.table}" WHERE`
-            + ` id = ANY($1) AND data->>'_type' = $2${orderPhrase}${offsetPhrase}${limitPhrase}`,
-        [ids, entityType.name],
+        `SELECT ${columns} FROM "${mapping.table}" WHERE "${mapping.idColumn}" = ANY($1)`
+            + (mapping.jsonColumn ? ` AND "${mapping.jsonColumn}"->>\'_type\' = $2` : '')
+            + `${orderPhrase}${offsetPhrase}${limitPhrase}`,
+        [ids, ...mapping.jsonColumn ? [entityType.name] : []],
         options.client
       )
-      return rows.map((row) => ({...row.data, _id: row.id}))
+      return rows.map((row) => rowToEntity(row, mapping))
     },
 
     fetchOneById: async function(id: Id, options: {
       client?: any,
       propertyBlacklist?: PropertyPath[]
     } = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`fetchOneById failed because type "${entityType.name} has no table.`)
       }
-      const propertyBlacklistPhrase = propertyBlacklistToPhrase(options.propertyBlacklist)
+      const columns = sqlFetchColumnList(mapping, options.propertyBlacklist || [])
       const {rows} = await db.query(
-        `SELECT data${propertyBlacklistPhrase} AS data FROM "${entityType.table}" WHERE id = $1 AND data->>'_type' = $2`,
-        [id, entityType.name],
+        `SELECT ${columns} FROM "${mapping.table}" WHERE "${mapping.idColumn}" = $1`
+            + (mapping.jsonColumn ? ` AND "${mapping.jsonColumn}"->>\'_type\' = $2` : ''),
+        [id, ...mapping.jsonColumn ? [entityType.name] : []],
         options.client
       )
       if (rows.length == 1) {
-        return {...rows[0].data, _id: id}
+        return rowToEntity(rows[0], mapping)
       } else {
         return null
       }
     },
 
+    // TODO Add support for mapped columns.
     insertMultipleItems: async function(items: any[]) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`insertMultipleItems failed because type "${entityType.name} has no table.`)
       }
       if (items.length > 0) {
+        const columns = [
+          mapping.idColumn,
+          ...mapping.jsonColumn ? [mapping.jsonColumn] : []
+        ]
         const rows = items.map((item) => {
           if (item._id) {
-            return {id: item._id, data: _.merge(_.omit(item, '_id'), {_type: entityType.name})}
+            return {
+              [mapping.idColumn]: item._id,
+              ...mapping.jsonColumn ? {[mapping.jsonColumn]: _.merge(_.omit(item, '_id'), {_type: entityType.name})} : {}
+            }
           } else {
-            return {id: uuidv4(), data: _.merge(item, {_type: entityType.name})}
+            return {
+              [mapping.idColumn]: uuidv4(),
+              ...mapping.jsonColumn ? {[mapping.jsonColumn]: _.merge(item, {_type: entityType.name})} : {}
+            }
           }
         })
-        await db.insertMultipleRows(entityType.table, ['id', 'data'], rows)
+        await db.insertMultipleRows(mapping.table, columns, rows)
       }
     },
 
+    // TODO Add support for mapped columns.
     insert: async function(item: any, options: {client?: any} = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`insert failed because type "${entityType.name} has no table.`)
       }
       if (!item._id) {
@@ -621,73 +741,140 @@ const makeRawDao = function(entityType: EntityType) {
       const id = item._id
       item._id = undefined
       item._type = entityType.name
-      await db.query(`INSERT INTO "${entityType.table}" (id, data) VALUES ($1, $2)`, [id, item], options.client)
+
+      const columns = [
+        mapping.idColumn,
+        ...mapping.jsonColumn ? [mapping.jsonColumn] : []
+      ]
+      const parameters = [
+        '$1',
+        ...mapping.jsonColumn ? ['$2'] : []
+      ]
+      const parameterValues = [
+        id,
+        ...mapping.jsonColumn ? [item] : []
+      ]
+      await db.query(
+        `INSERT INTO "${mapping.table}"`
+            + ` (${columns.map((c) => `"${c}"`).join(', ')})`
+            + ` VALUES (${parameters.join(', ')})`,
+        parameterValues,
+        options.client
+      )
+
       item._id = id
 
       return item
     },
 
+    // TODO Add support for mapped columns.
     update: async function(item: any, options: {client?: any} = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`update failed because type "${entityType.name} has no table.`)
       }
       const id = item._id
       item._id = undefined
       item._type = entityType.name
-      await db.query(
-        `UPDATE "${entityType.table}" SET data = $2 WHERE id = $1 AND data->>'_type' = $3`,
-        [id, item, entityType.name],
-        options.client
-      )
+
+      const parameterValues = [
+        id,
+        ...mapping.jsonColumn ? [item, entityType.name] : []
+      ]
+      if (mapping.jsonColumn) {
+        await db.query(
+          `UPDATE "${mapping.table}" SET "${mapping.jsonColumn}" = $2`
+              + ` WHERE "${mapping.idColumn}" = $1 AND "${mapping.jsonColumn}"->>'_type' = $3`,
+          parameterValues,
+          options.client
+        )
+      }
+
       item._id = id
 
       return item
     },
 
+    // TODO Add support for mapped columns.
     updateMultipleItems: async function(items: any[]) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`updateMultipleItems failed because type "${entityType.name} has no table.`)
       }
+      const columnsToUpdate = [
+        ...mapping.jsonColumn ? [mapping.jsonColumn] : []
+      ]
       const rows = items.map((item) => {
         if (item._id) {
-          return {id: item._id, data: _.merge(_.omit(item, '_id'), {_type: entityType.name})}
+          return {
+            [mapping.idColumn]: item._id,
+            ...mapping.jsonColumn ? {[mapping.jsonColumn]: _.merge(_.omit(item, '_id'), {_type: entityType.name})} : {}
+          }
         } else {
           return null
         }
       }).filter((row): row is Exclude<typeof row, null> => row !== null)
-      await db.updateMultipleRows(entityType.table, 'id', ['data'], rows)
+      await db.updateMultipleRows(mapping.table, mapping.idColumn, columnsToUpdate, rows)
     },
 
     deleteOneById: async function(id: Id, options: {client?: any} = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`deleteById failed because type "${entityType.name} has no table.`)
       }
-      await db.query(
-        `DELETE FROM "${entityType.table}" WHERE id = $1 and data->>'_type' = $2`,
-        [id, entityType.name],
-        options.client
-      )
+      const parameterValues = [
+        id,
+        ...mapping.jsonColumn ? [entityType.name] : []
+      ]
+      if (mapping.jsonColumn) {
+        await db.query(
+          `DELETE FROM "${mapping.table}" WHERE "${mapping.idColumn}" = $1 and "${mapping.jsonColumn}"->>'_type' = $2`,
+          parameterValues,
+          options.client
+        )
+      }
     },
 
     delete: async function(query?: QueryClause, options: {client?: any} = {}) {
-      if (!entityType.table) {
+      if (!entityType.mapping) {
+        throw new PersistenceError(
+          `Cannot make SQL query for an unmapped entity type (${entityType.name})).`,
+          {entityTypeName: entityType.name}
+        )
+      }
+      const mapping = entityType.mapping
+      if (!mapping.table) {
         throw new PersistenceError(`delete failed because type "${entityType.name} has no table.`)
       }
       const {sqlClause: clause, parameterValues} = makeSqlQueryCriteriaClauses(entityType, query)
       const whereClause = clause ? ` WHERE ${clause}` : ''
       if (whereClause.length < 1) {
-        throw Error(`Attempt to delete all records from table ${entityType.table}`)
+        throw Error(`Attempt to delete all records from table ${mapping.table}`)
       }
-      // const {clauses, parameterValues} = makeQueryCriteriaClauses(entityType, query)
-      // const {rows} =
       await db.query(
-        `DELETE FROM "${entityType.table}"${whereClause}`,
+        `DELETE FROM "${mapping.table}"${whereClause}`,
         parameterValues,
         options.client
       )
-      // return rows.map(row => ({...row.data, _id: row.id}))
     }
-
   }
 }
 

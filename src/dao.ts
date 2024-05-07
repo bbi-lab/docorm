@@ -15,9 +15,16 @@ import {PersistenceError} from './errors.js'
 import {Client} from './postgresql/db.js'
 import {
   JsonPathStr,
+  jsonPathToPropertyPath,
   JsonPointerStr,
-  PropertyPathArray,
+  mapPaths,
+  pathDepth,
+  PathTransformer,
   PropertyPathStr,
+  shortenPath,
+  tailPath
+} from './paths.js'
+import {
   QueryClause,
   queryClauseIsAnd,
   QueryOrder
@@ -32,111 +39,6 @@ import {
 } from './schemas.js'
 
 export type Dao = any
-
-function hasKey<O extends object>(obj: O, key: PropertyKey): key is keyof O {
-  return key in obj
-}
-
-type PathTransformer = (path: string) => {path: string, additionalOptions?: {[key: string]: any}}
-
-function jsonPathToPropertyPath(jsonPath: string) {
-  // TODO First ensure that the JSON path begins with $. and does not contain any complex elements.
-  return jsonPath.substring(2)
-}
-
-function dottedPathToArray(path: PropertyPathStr): PropertyPathArray {
-  const pathArray = []
-  let tail = path
-  while (tail.length > 0) {
-      const match = tail.match(/^([^\[]*)\[([0-9]+|\*)\]\.?(.*)$/)
-      if (!match) {
-          pathArray.push(tail)
-          tail = ''
-      } else {
-          if (match[1] != null) {
-              pathArray.push(match[1])
-          }
-          if (match[2] != null) {
-              if (match[2] == '*') {
-                  pathArray.push(-1)
-              } else {
-                  pathArray.push(parseInt(match[1]))
-              }
-          }
-          tail = match[3] || ''
-      }
-  }
-  return pathArray
-}
-
-export function pathDepth(path: PropertyPathStr) {
-  return dottedPathToArray(path).length
-}
-
-function arrayToDottedPath(pathArray: PropertyPathArray): PropertyPathStr {
-  if (pathArray.length == 0) {
-      return ''
-  }
-  const firstElement = pathArray[0]
-  return [
-      firstElement,
-      ...pathArray.slice(1).map(
-          (pathElement) => _.isNumber(pathElement) ? `[${pathElement == -1 ? '*' : pathElement}]` : `.${pathElement}`
-      )
-  ].join('')
-}
-
-function shortenPath(path: PropertyPathStr, numComponentsToTrim: number): PropertyPathStr {
-  const pathArray = dottedPathToArray(path)
-  if (numComponentsToTrim > pathArray.length) {
-      throw 'Error'
-  } else {
-      const shortenedPathArray = pathArray.slice(0, -numComponentsToTrim)
-      return arrayToDottedPath(shortenedPathArray)
-  }
-}
-
-function tailPath(path: PropertyPathStr, numComponentsToTrim: number): PropertyPathStr {
-  const pathArray = dottedPathToArray(path)
-  if (numComponentsToTrim > pathArray.length) {
-      throw 'Error'
-  } else {
-      const pathTailArray = pathArray.slice(-numComponentsToTrim)
-      return arrayToDottedPath(pathTailArray)
-  }
-}
-
-function mapPaths<T>(x: T, transformPath: PathTransformer, visited: any[] = []): T {
-  if (x == null) {
-    return x
-  }
-  if (_.isArray(x)) {
-    return x.map((element) => mapPaths(element, transformPath)) as T
-  }
-  if (!_.isObject(x)) {
-    return x
-  }
-  visited.push(x)
-  const mappedObject: {[key: string]: any} = {}
-  for (const key in x) {
-    //if (Object.prototype.hasOwnProperty.call(object, key)) {
-    if (hasKey(x, key)) {
-      const value = x[key]
-      if (key == 'path' && _.isString(value)) {
-        const {path, additionalOptions} = transformPath(value)
-        mappedObject[key] = path
-        if (additionalOptions) {
-          _.assign(mappedObject, additionalOptions)
-        }
-      } else {
-        if (!visited.includes(value)) {
-          mappedObject[key] = mapPaths(value, transformPath, visited)
-        }
-      }
-    }
-  }
-  return mappedObject as typeof x
-}
 
 const makePathTransformer = (schema: ConcreteEntitySchema, isDraft = false) => (path: PropertyPathStr) => {
   const result: ReturnType<PathTransformer> = {
@@ -270,7 +172,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
     }
   }
 
-  function wrapDraft(item: Entity) {
+  function wrapDraft(item: Entity): Entity {
     return {
       _id: item._id,
       draftBatchId,
@@ -279,7 +181,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
     }
   }
 
-  function unwrapDraft(draft: Entity) {
+  function unwrapDraft(draft: Entity): Entity {
     return _.merge({}, draft.draft, {_id: draft._id, _type: draft._draftType})
   }
 
@@ -632,7 +534,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           case 'inverse-ref':
             // TODO Ensure that the item belongs to the parent's collection.
             const fetchResult = await rawDao.fetchOneById(id, {client, propertyBlacklist})
-            return draftBatchId ? unwrapDraft(fetchResult) : fetchResult
+            return (draftBatchId && fetchResult) ? unwrapDraft(fetchResult) : fetchResult
           case 'ref':
             // TODO
             return null
@@ -654,7 +556,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         // fetchResult = null
         //  }
 
-        return draftBatchId ? unwrapDraft(fetchResult) : fetchResult
+        return (draftBatchId && fetchResult) ? unwrapDraft(fetchResult) : fetchResult
       }
     },
 
