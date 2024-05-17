@@ -389,6 +389,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           FetchOptions
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        parentIds = [...new Set(parentIds)]
         switch (collection.persistence) {
           case 'inverse-ref': {
             // TODO Use the schema's foreign key path instead of having one in the REST collection config.
@@ -491,8 +492,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         {client = null, returnMatchingList = true, propertyBlacklist = []} = {}
     ) {
       let items: Entity[] = []
+      ids = [...new Set(ids)]
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        parentIds = [...new Set(parentIds)]
         switch (collection.persistence) {
           case 'inverse-ref':
             // TODO
@@ -530,6 +533,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
     fetchOneById: async function(id: Id, parentIds = [], {client = null, propertyBlacklist = []} = {}) {
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
+        parentIds = [...new Set(parentIds)]
         switch (collection.persistence) {
           case 'inverse-ref':
             // TODO Ensure that the item belongs to the parent's collection.
