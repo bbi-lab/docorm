@@ -296,7 +296,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             }
           }
             break
-            case 'subdocument': {
+          case 'subdocument': {
             const parent = await _.last(parentDaos)
                 .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
             if (!parent) {
@@ -402,7 +402,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             } else {
               const collectionMembers = await rawDao.fetch({
                 l: {path: `${collection.foreignKeyPath}.$ref`}, r: {constant: parent._id}
-              }) as Entity[]
+              }, {client, order, offset, limit, propertyBlacklist}) as Entity[]
               return collectionMembers
               // TODO Apply order
               // TODO Apply limit
@@ -418,7 +418,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
                 client,
                 limit,
                 propertyBlacklist,
-                order
+                order,
+                offset
               })
             }
           }
@@ -430,7 +431,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             } else {
               const collectionMembers = _.get(parent, collection.name) || []
               // TODO Apply order
-              return limit ? collectionMembers.slice(0, limit) : collectionMembers
+              if (offset) {
+                return limit ? collectionMembers.slice(offset, offset + limit) : collectionMembers.slice(offset)
+              } else {
+                return limit ? collectionMembers.slice(0, limit) : collectionMembers
+              }
             }
           }
         }
