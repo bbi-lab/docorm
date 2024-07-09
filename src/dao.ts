@@ -509,7 +509,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             if (!parent) {
               items = [] // TODO Or error?
             } else {
-              items = (_.get(parent, collection.name) || []).find((x: any) => x?._id && ids.includes(x._id))
+              items = (_.get(parent, collection.name) || []).filter((x: any) => x?._id && ids.includes(x._id))
             }
           }
         }
