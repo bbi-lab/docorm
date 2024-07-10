@@ -514,9 +514,15 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             }
           }
             break
-          case 'ref':
-            // TODO
-            items = []
+          case 'ref': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              const collectionMemberIds = (_.get(parent, collection.subpath) || []).filter((x: any) => ids.includes(x))
+              return await rawDao.fetchById(collectionMemberIds, {client, propertyBlacklist})
+            }
+          }
             break
           case 'subdocument': {
             // TODO Revisit
