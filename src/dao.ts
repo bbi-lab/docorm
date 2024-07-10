@@ -499,13 +499,35 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
-          case 'inverse-ref':
-            // TODO
-            items = []
+          case 'inverse-ref': {
+            // TODO Use the schema's foreign key path instead of having one in the REST collection config.
+            if (!collection.foreignKeyPath) {
+              throw new PersistenceError('Collection lacks a foreign key path')
+            }
+            // TODO Optimize by fetching only the parent's _id.
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              items = [] // TODO Or error?
+            } else {
+              const query : QueryClause = {
+                and: [
+                  {l: {path: `${collection.foreignKeyPath}.$ref`}, r: {constant: parent._id}},
+                  {l: {path: '_id'}, r: {constant: ids}, operator: 'in'}
+                ]
+              }
+              items = await rawDao.fetch(query, {client, propertyBlacklist}) as Entity[]
+            }
+          }
             break
-          case 'ref':
-            // TODO
-            items = []
+          case 'ref': {
+            const parent = await _.last(parentDaos).fetchOneById(_.last(parentIds), parentIds.slice(0, -1))
+            if (!parent) {
+              return [] // TODO Or error?
+            } else {
+              const collectionMemberIds = (_.get(parent, collection.subpath) || []).filter((x: any) => ids.includes(x))
+              return await rawDao.fetchById(collectionMemberIds, {client, propertyBlacklist})
+            }
+          }
             break
           case 'subdocument': {
             // TODO Revisit
@@ -514,7 +536,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             if (!parent) {
               items = [] // TODO Or error?
             } else {
-              items = (_.get(parent, collection.name) || []).find((x: any) => x?._id && ids.includes(x._id))
+              items = (_.get(parent, collection.name) || []).filter((x: any) => x?._id && ids.includes(x._id))
             }
           }
         }
@@ -524,6 +546,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             await rawDao.fetch({l: {path: '_id'}, r: {constant: ids}, operator: 'in'}, {client, propertyBlacklist}) as FetchResults : []
         items = draftBatchId ? fetchResult.map((item: Entity) => unwrapDraft(item)) : fetchResult
       }
+
       if (returnMatchingList) {
         return ids.map((id) => items.find((item) => item._id == id))
       } else {
