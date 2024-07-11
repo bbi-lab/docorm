@@ -496,6 +496,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         {client = null, returnMatchingList = true, propertyBlacklist = []} = {}
     ) {
       let items: Entity[] = []
+      ids = _.uniq(ids)
       const collection = _.last(parentCollections)
       if (collection && parentDaos.length > 0 && parentIds.length > 0) {
         switch (collection.persistence) {
