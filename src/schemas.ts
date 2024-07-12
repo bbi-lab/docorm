@@ -130,6 +130,18 @@ export function makeSchemaConcrete(
     if ((schema as any).entityType || (schema as any).foreignKey || (schema as any).storage) {
       Object.assign(concreteSchema, _.pick(schema, ['entityType', 'foreignKey', 'storage']));
     }
+
+    // Add $ref to the concrete subschema's properties. This is  workaround, whereas what we really want to do is stop
+    // producing a concrete schema in advance for a type; instead we might produce concrete schemas only when needed,
+    // based on a schema context and taking into account what relationships have been expanded.
+    // TODO If concreteSchema's type is not object, this doesn't make sense. In fact we should only allow $refs to
+    // object schemas.
+    if ((concreteSchema as any).type == 'object') {
+      (concreteSchema as any).properties ||= {}
+      if (!(concreteSchema as any).properties.$ref) {
+        (concreteSchema as any).properties.$ref = {type: 'string'}
+      }
+    }
   } else {
     switch ((schema as any).type) {
       case 'object':
