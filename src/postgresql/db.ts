@@ -112,7 +112,7 @@ export async function getClient({transactional = true, useClientFromCLS = true} 
 
   let client: Client | null = null
   if (useClientFromCLS && clsNamespace) {
-    logger().info('TRYING TO GET CLIENT FROM CLS NAMESPACE')
+    logger().verbose('TRYING TO GET CLIENT FROM CLS NAMESPACE')
     client = clsNamespace.get('client')
   }
   if (!client) {
@@ -120,11 +120,11 @@ export async function getClient({transactional = true, useClientFromCLS = true} 
     await getClientMutex.runExclusive(async () => {
       // Check again for a client, in case another function call in our CLS context has obtained one.
       if (useClientFromCLS && clsNamespace) {
-        logger().info('TRYING AGAIN TO GET CLIENT FROM CLS NAMESPACE')
+        logger().verbose('TRYING AGAIN TO GET CLIENT FROM CLS NAMESPACE')
         client = clsNamespace.get('client')
       }
       if (!client) {
-        logger().info('GETTING CLIENT FROM POOL, operation ID=' + operationId)
+        logger().verbose('GETTING CLIENT FROM POOL, operation ID=' + operationId)
         if (!pool) {
           throw new PersistenceError('No pool when attempting to get a new database client.')
         }
@@ -132,9 +132,9 @@ export async function getClient({transactional = true, useClientFromCLS = true} 
         customizeClient(client)
         if (transactional) {
           await client.query('BEGIN')
-          logger().info(`Began transaction`, {operationId})
+          logger().log('db', `Began transaction`, {operationId})
         } else {
-          logger().info(
+          logger().verbose(
             `Obtained database client without starting a database transaction`,
             {operationId}
           )
@@ -188,7 +188,7 @@ export async function commit(client?: Client) {
   }*/
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
-    logger().info('Committed changes', {operationId})
+    logger().log('db', 'Committed changes', {operationId})
     client.numQueriesInTransaction = 0
   }
 }
@@ -208,9 +208,9 @@ export async function commitAndBeginTransaction(client: Client | null = null) {
   }*/
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('COMMIT')
-    logger().info('Committed changes', {operationId})
+    logger().log('db', 'Committed changes', {operationId})
     await client.query('BEGIN')
-    logger().info('Began transaction', {operationId})
+    logger().log('db', 'Began transaction', {operationId})
     client.numQueriesInTransaction = 0
   }
 }
@@ -229,7 +229,7 @@ export async function rollback(client: Client | null = null) {
   */
   if (client && client.numQueriesInTransaction && client.numQueriesInTransaction > 0) {
     await client.query('ROLLBACK')
-    logger().info(`Rolled back transaction`, {operationId})
+    logger().log('db', `Rolled back transaction`, {operationId})
     client.numQueriesInTransaction = 0
   }
 }
@@ -246,10 +246,9 @@ export function releaseClient(client: Client | null = null) {
     if (client) {
       client.numQueriesInTransaction = 0
       client.release()
-      logger().info(`Released database client`, {operationId})
+      logger().verbose(`Released database client`, {operationId})
     }
   } catch (err) {
-    console.log(err)
     logger().log(
       'critical',
       'A database client could not be released.'
