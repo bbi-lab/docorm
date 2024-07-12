@@ -25,6 +25,7 @@ import {
   tailPath
 } from './paths.js'
 import {
+  applyQuery,
   QueryClause,
   queryClauseIsAnd,
   QueryOrder
@@ -272,8 +273,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               const collectionMembers = await rawDao.fetch({
                 l: {path: `${collection.foreignKeyPath}.$ref`}, r: {constant: parent._id}
               }) as Entity[]
-              // TODO Implement collection filtering by query
-              results = collectionMembers.filter((x) => false)
+              results = collectionMembers.filter((x) => query ? applyQuery(x, query) : true)
               // TODO Apply order
               // TODO Apply limit
             }
@@ -287,23 +287,21 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
             } else {
               const collectionMemberIds = _.get(parent, collection.subpath) || []
               const collectionMembers = await rawDao.fetchById(collectionMemberIds, {client, propertyBlacklist})
-              results = collectionMembers.filter((x) =>
-                // TODO Implement collection filtering by query
-                false
-              )
+              results = collectionMembers.filter((x) => query ? applyQuery(x, query) : true)
               // TODO Apply order
               // TODO Apply limit
             }
           }
             break
-            case 'subdocument': {
+          case 'subdocument': {
             const parent = await _.last(parentDaos)
                 .fetchOneById(_.last(parentIds), parentIds.slice(0, -1), {client, propertyBlacklist})
             if (!parent) {
               results = [] // TODO Or error?
             } else {
               // TODO Implement collection filtering by query
-              results = (_.get(parent, collection.subpath) || []).filter(() => false)
+              results = (_.get(parent, collection.subpath) || [])
+                  .filter((x: any) => query ? applyQuery(x, query) : true)
               // TODO Apply order
               // TODO Apply limit
             }
