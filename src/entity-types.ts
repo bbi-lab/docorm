@@ -1,11 +1,17 @@
 import _ from 'lodash'
+import {
+  arrayToDottedPath,
+  type PropertyPathArray,
+  type PropertyPathStr,
+  type Schema
+} from 'schema-fun'
 
 import {Dao} from './dao.js'
+import {docorm} from './index.js'
 import {InternalError} from './errors.js'
 import {importDirectory} from './import-dir.js'
-import {arrayToDottedPath, PropertyPathArray, PropertyPathStr} from './paths.js'
 import {QueryClause, QueryOrder} from './queries.js'
-import {ConcreteEntitySchema, EntitySchema, SchemaType, getSchema, makeSchemaConcrete} from './schemas.js'
+//import {ConcreteEntitySchema, EntitySchema, SchemaType, getSchema, makeSchemaConcrete} from './schemas.js'
 
 type SyncOrAsync<T extends (...args: any) => any> =
     ((...args: Parameters<T>) => ReturnType<T>) | ((...args: Parameters<T>) => Promise<ReturnType<T>>)
@@ -111,7 +117,7 @@ export interface EntityTypeDefinition {
   commonTitle: string
   title: string
   allowsDrafts?: boolean
-  schemaPath: string[],
+  schemaId: string,
   table?: string // TODO Move into mapping
   mapping?: {
     idColumn?: string
@@ -161,8 +167,8 @@ export interface EntityTypeMapping {
 export interface EntityType extends Omit<EntityTypeDefinition, 'abstract' | 'parent'> {
   parent?: EntityType
   abstract: boolean
-  schema: EntitySchema
-  concreteSchema: ConcreteEntitySchema
+  schema: Schema
+  // concreteSchema: ConcreteEntitySchema
   mapping?: EntityTypeMapping
 }
 
@@ -176,7 +182,7 @@ const ENTITY_TYPE_KEYS = [
   'title',
   'allowsDrafts',
   'schema',
-  'schemaPath',
+  'schemaName',
   'table',
   'import',
   'dbCallbacks',
@@ -342,7 +348,7 @@ function makeMergedCallbacksProxy<T = DbCallbacks | RestCallbacks>(callbacks: T,
 
 export interface BuildColumnMapState {
   knownSubschemas: {
-    [path: string]: EntitySchema
+    [schemaId: string]: Schema
   }
 }
 
@@ -351,9 +357,9 @@ const INITIAL_BUILD_COLUMN_MAP_STATE = {
 }
 
 function buildPropertyMappings(
-    schema: EntitySchema,
-    schemaType: SchemaType = 'model',
-    namespace: string | undefined = undefined,
+    schema: Schema,
+    // schemaType: SchemaType = 'model',
+    // namespace: string | undefined = undefined,
     currentPath: PropertyPathArray = [],
     state: BuildColumnMapState = INITIAL_BUILD_COLUMN_MAP_STATE
 ): PropertyMapping[] {
@@ -362,32 +368,29 @@ function buildPropertyMappings(
 
   const column: string | undefined = (schema as any)?.mapping?.column
 
-  if ((schema as any).allOf) {
-    const submaps = ((schema as any).allOf as EntitySchema[]).map((subschema: EntitySchema) =>
-      buildPropertyMappings(subschema, schemaType, namespace, currentPath, state)
+  if (schema.allOf || schema.oneOf) {
+    const schemaOptions = (schema.allOf || schema.oneOf) as Schema[]
+    const schemaOptionMaps = schemaOptions.map((schemaOption: Schema) =>
+      buildPropertyMappings(schemaOption, currentPath, state)
+      // buildPropertyMappings(schemaOption, schemaType, namespace, currentPath, state)
     )
-    mappings = _.uniqBy(submaps.flat(), 'propertyPath')
-  } else if ((schema as any).oneOf) {
-    const submaps = ((schema as any).oneOf as EntitySchema[]).map((subschema: EntitySchema) =>
-      buildPropertyMappings(subschema, schemaType, namespace, currentPath, state)
-    )
-    mappings = _.uniqBy(submaps.flat(), 'propertyPath')
-  } else if ((schema as any).$ref) {
+    mappings = _.uniqBy(schemaOptionMaps.flat(), 'propertyPath')
+  } else if (schema.$ref) {
     if (!['ref', 'inverse-ref'].includes((schema as any).storage)) {
-      const path = _.trimStart((schema as any).$ref, '/').split('/')
+      const schemaRef = schema.$ref //_.trimStart(schema.$ref, '/').split('/')
       const cachedSchemaKey = (schema as any).$ref
       let subschema = {}
       if (state.knownSubschemas[cachedSchemaKey] != null) {
         subschema = knownSubschemas[cachedSchemaKey]
       } else {
         // TODO Handle error if not found
-        const subschema = getSchema(path, schemaType, namespace)
+        const subschema = docorm.config.schemaRegistry?.getSchema(schemaRef)
         if (!subschema) {
-          throw new InternalError(`Schema refers to unknown subschema with $ref "${path}".`)
+          throw new InternalError(`Schema refers to unknown subschema with $ref "${schemaRef}".`)
         }
         knownSubschemas[cachedSchemaKey] = subschema
       }
-      mappings = buildPropertyMappings(subschema, schemaType, namespace, currentPath, state)
+      mappings = buildPropertyMappings(subschema, currentPath)
     } else if ((schema as any).storage == 'ref') {
       if (column) {
         mappings.push({propertyPath: arrayToDottedPath([...currentPath, '$ref']), column})
@@ -397,12 +400,10 @@ function buildPropertyMappings(
     switch ((schema as any).type) {
       case 'object':
         {
-          const properties: {[propertyName: string]: EntitySchema} | undefined = (schema as any).properties
+          const properties: {[propertyName: string]: Schema} | undefined = schema.properties
           if (properties) {
-            for (const propertyName in properties || {}) {
-              const partialMappings = buildPropertyMappings(
-                properties[propertyName], schemaType, namespace, [...currentPath, propertyName], state
-              )
+            for (const propertyName in properties) {
+              const partialMappings = buildPropertyMappings(properties[propertyName], [...currentPath, propertyName])
               mappings.push(...partialMappings)
             }
           }
@@ -422,7 +423,7 @@ function buildPropertyMappings(
 
 export function makeUnproxiedEntityType(definition: EntityTypeDefinition): EntityType {
   const parentEntityType: EntityType | undefined = definition.parent ? getEntityType(definition.parent) : undefined
-  const schema = getSchema(definition.schemaPath, 'model')
+  const schema = docorm.config.schemaRegistry?.getSchema(definition.schemaId)
   if (!schema) {
     throw new InternalError(`Entity type "${definition.name}" has no schema.`)
   }
@@ -433,7 +434,7 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
     parent: parentEntityType,
     abstract: definition.abstract || false,
     schema,
-    concreteSchema: makeSchemaConcrete(schema, 'model'),
+    // concreteSchema: makeSchemaConcrete(schema, 'model'),
     mapping: undefined,
     dbCallbacks: mergeCallbacks(
       parentEntityType?.dbCallbacks || {},
@@ -449,7 +450,7 @@ export function makeUnproxiedEntityType(definition: EntityTypeDefinition): Entit
     table,
     idColumn: definition.mapping?.idColumn || 'id',
     jsonColumn: definition.mapping ? definition.mapping.jsonColumn : 'data',
-    propertyMappings: buildPropertyMappings(schema, 'model'),
+    propertyMappings: buildPropertyMappings(schema),
     readonly: !!definition.mapping?.readonly
   } : undefined
   return entityType

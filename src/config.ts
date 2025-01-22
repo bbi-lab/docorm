@@ -1,4 +1,5 @@
 import _ from 'lodash'
+import {SchemaRegistry} from 'schema-fun'
 import winston from 'winston'
 
 export interface DocOrmConfigInput {
@@ -13,7 +14,8 @@ export interface DocOrmConfigInput {
     database?: string,
     allowUnknownSslCertificate?: boolean,
     ssl?: boolean
-  }
+  },
+  schemaRegistry?: SchemaRegistry
 }
 
 export interface DocOrmConfig extends DocOrmConfigInput {
@@ -28,7 +30,8 @@ export interface DocOrmConfig extends DocOrmConfigInput {
     database?: string,
     allowUnknownSslCertificate: boolean,
     ssl: boolean
-  }
+  },
+  schemaRegistry?: SchemaRegistry
 }
 
 export const DEFAULT_DOC_ORM_CONFIG = {

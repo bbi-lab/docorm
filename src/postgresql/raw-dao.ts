@@ -1,12 +1,12 @@
 import _ from 'lodash'
 import QueryStream from 'pg-query-stream'
+import {arrayToDottedPath, type PropertyPath} from 'schema-fun'
 import {Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
 import * as db from './db.js'
 import {Entity, EntityType, EntityTypeMapping, Id, PropertyMapping} from '../entity-types.js'
 import {PersistenceError} from '../errors.js'
-import {PropertyPath, arrayToDottedPath} from '../paths.js'
 import {
   QueryClause,
   queryClauseIsAnd,

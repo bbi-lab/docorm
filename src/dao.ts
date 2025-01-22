@@ -7,23 +7,27 @@
 import jsonPointer from 'json-pointer'
 import {JSONPath as jsonPath} from 'jsonpath-plus'
 import _ from 'lodash'
+import {
+  type JsonPathStr,
+  jsonPathToPropertyPath,
+  type JsonPointerStr,
+  mapPaths,
+  pathDepth,
+  type PathTransformer,
+  type PropertyPathStr,
+  type Relationship,
+  type Schema,
+  SchemaRegistry,
+  shortenPath,
+  tailPath
+} from 'schema-fun'
 import {Readable, Transform} from 'stream'
 import {v4 as uuidv4} from 'uuid'
 
+import {docorm} from './index.js'
 import {Collection, Entity, EntityType, getEntityType, Id} from './entity-types.js'
 import {PersistenceError} from './errors.js'
 import {Client} from './postgresql/db.js'
-import {
-  JsonPathStr,
-  jsonPathToPropertyPath,
-  JsonPointerStr,
-  mapPaths,
-  pathDepth,
-  PathTransformer,
-  PropertyPathStr,
-  shortenPath,
-  tailPath
-} from './paths.js'
 import {
   applyQuery,
   QueryClause,
@@ -31,6 +35,7 @@ import {
   QueryOrder
 } from './queries.js'
 import makeRawDao, {FetchResults, fetchResultsIsArray, fetchResultsIsStream} from './postgresql/raw-dao.js'
+/*
 import {
   ConcreteEntitySchema,
   findPropertyInSchema,
@@ -38,32 +43,50 @@ import {
   listTransientPropertiesOfSchema,
   Relationship
 } from './schemas.js'
+*/
 
 export type Dao = any
 
-const makePathTransformer = (schema: ConcreteEntitySchema, isDraft = false) => (path: PropertyPathStr) => {
-  const result: ReturnType<PathTransformer> = {
-    path: (path == '_id' || !isDraft) ? path : `draft.${path}`
-  }
-  const propertySchema = findPropertyInSchema(schema, path)
-  if (propertySchema) {
-    const propertySchemaType = (propertySchema as any).type
-    switch (propertySchemaType) {
-      case 'boolean':
-        result.additionalOptions = {sqlType: 'boolean'}
-        break
-        // TODO Handle other JSON -> SQL type conversions? Only numbers may be needed. (What about dates?)
-        /*
-        case 'number':
-        result.additionalOptions = {sqlType: 'real'}
-        break
-        */
-      default:
-        break
+/**
+ * Return a function that transforms property paths.
+ *
+ * The function returns a value of type PathTransformer containing the transformed path together with additional
+ * options.
+ *
+ * - If isDraft is true, the function will prepend `draft.` to all property paths other than `_id`.
+ * - If the property type is boolean (as determined by examining the schema to which the property path refers), an
+ *   option is added with key `sqlType` and value `boolean`.
+ *
+ * @param schema The schema in which to look for the property path, to determine if the property is boolean.
+ * @param isDraft A flag indicating whether the path is to be used in the context of a draft (true) or a regular
+ *   document (false).
+ * @returns A value containing the transformed path together with additional options (currently, just `sqlType:
+ *   'boolean'`).
+ */
+const makePathTransformer = (schema: Schema, isDraft = false) =>
+  (path: PropertyPathStr) => {
+    const result: ReturnType<PathTransformer> = {
+      path: (path == '_id' || !isDraft) ? path : `draft.${path}`
     }
+    const propertySchema = docorm.config.schemaRegistry?.findPropertyInSchema(schema, path)
+    if (propertySchema) {
+      const propertySchemaType = (propertySchema as any).type
+      switch (propertySchemaType) {
+        case 'boolean':
+          result.additionalOptions = {sqlType: 'boolean'}
+          break
+          // TODO Handle other JSON -> SQL type conversions? Only numbers may be needed. (What about dates?)
+          /*
+          case 'number':
+          result.additionalOptions = {sqlType: 'real'}
+          break
+          */
+        default:
+          break
+      }
+    }
+    return result
   }
-  return result
-}
 
 interface DaoOptionsInput {
   /**
@@ -155,9 +178,10 @@ const DEFAULT_FETCH_RELATIONSHIPS_OPTIONS: FetchRelationshipsOptions = {
 const makeDao = async function(entityType: EntityType, options: DaoOptionsInput = DAO_DEFAULT_OPTIONS): Promise<Dao> {
   const {parentCollections, parentDaos, draftBatchId} = _.merge({}, DAO_DEFAULT_OPTIONS, options) as DaoOptions
 
-  const concreteSchema = entityType.concreteSchema
+  //const concreteSchema = entityType.concreteSchema
+  const schema = entityType.schema
 
-  const transientPropertyPaths = listTransientPropertiesOfSchema(concreteSchema)
+  const transientPropertyPaths = docorm.config.schemaRegistry?.findTransientPropertiesInSchema(schema) || []
   const dbCallbacks = entityType.dbCallbacks || {}
 
   const draftEntityType = await getEntityType('draft')
@@ -188,7 +212,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
   return {
     entityType: entityType,
-    concreteSchema: concreteSchema,
+    //concreteSchema: concreteSchema,
     draftBatchId,
 
     /**
@@ -223,7 +247,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return items.length
       } else {
         if (query != undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
         }
         if (query != undefined && query !== false) {
           if (draftBatchId) {
@@ -311,7 +335,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         return stream ? Readable.from(results) : results
       } else {
         if (query !== undefined && query !== false) {
-          query = mapPaths(query, makePathTransformer(concreteSchema, !!draftBatchId))
+          query = mapPaths(query, makePathTransformer(schema, !!draftBatchId))
         }
         if (query !== undefined && query !== false) {
           if (draftBatchId) {
@@ -333,7 +357,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
@@ -449,7 +473,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
 
         if (order != null) {
-          order = mapPaths(order, makePathTransformer(concreteSchema, !!draftBatchId))
+          order = mapPaths(order, makePathTransformer(schema, !!draftBatchId))
           if (draftBatchId) {
             // order = mapPaths(order, (path) => (path == '_id' ? path : `draft.${path}`))
             /* order = _.map(order, orderElement => {
@@ -596,6 +620,11 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (pathsToExpand && pathsToExpand.length == 0) {
         return
       }
+      // Strip leading '$.' from each path. pathsToExpand are expressed as simple JSONPaths, but we treat them as
+      // PropertyPathStrs.
+      if (pathsToExpand) {
+        pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$\./, ''))
+      }
       const currentEntityType = entityTypeAtPathPrefix !== undefined ? entityTypeAtPathPrefix : entityType
 
       // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
@@ -614,9 +643,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
 
       // Get all related item definitions in the current item's entity type.
       const maxRelationshipDepth = pathsToExpand ? Math.max(0, ...pathsToExpand.map((p) => pathDepth(p))) : maxDepth
-      const relationships = findRelationships(
-        currentEntityType.concreteSchema,
+      const relationships = docorm.config.schemaRegistry?.findRelationshipsInSchema(
+        currentEntityType.schema,
         ['ref', 'inverse-ref'],
+        undefined,
         maxRelationshipDepth
       )
 
@@ -699,31 +729,33 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const itemReferencesByEntityTypeName: {[entityTypeName: string]: {pointer: string, id: Id}[]} = {}
       let numReferencesFetched = 0
       for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
-        let pathInItemsArray = pathPrefix ? relationship.path.replace(/^\$/, pathPrefix.toString().replace(/^\$/, '$[*]')) : relationship.path.replace(/^\$/, '$[*]')
-        if (relationship.toMany) {
-          pathInItemsArray = `${pathInItemsArray}[*]`
-        }
-        let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
-        if (pointersToExpand) {
-          referencePointers = _.intersection(referencePointers, pointersToExpand)
-        }
-        for (const referencePointer of referencePointers) {
-          const reference = jsonPointer.get(items, referencePointer)
-          // TODO Handle collections with forward references, where reference has the form {type: 'array', items: {storage: 'ref'}}.
-          if (reference && reference.$ref) {
-            const knownItem = _.get(knownItems, [relationship.entityTypeName, reference.$ref])
-            if (knownItem) {
-              // TODO Ensure that _.set works with all simple JSONPaths returned by JSONPath({resultType: 'path'}).
-              // Alternatively, use JSON pointers instead.
-              _.set(items, referencePointer, knownItem)
-              numReferencesFetched += 1
-            } else {
-              itemReferencesByEntityTypeName[relationship.entityTypeName] =
-                  itemReferencesByEntityTypeName[relationship.entityTypeName] || []
-              itemReferencesByEntityTypeName[relationship.entityTypeName].push({
-                pointer: referencePointer,
-                id: reference.$ref
-              })
+        if (relationship.entityTypeName) {
+          let pathInItemsArray = pathPrefix ? relationship.path.replace(/^\$/, pathPrefix.toString().replace(/^\$/, '$[*]')) : relationship.path.replace(/^\$/, '$[*]')
+          if (relationship.toMany) {
+            pathInItemsArray = `${pathInItemsArray}[*]`
+          }
+          let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
+          if (pointersToExpand) {
+            referencePointers = _.intersection(referencePointers, pointersToExpand)
+          }
+          for (const referencePointer of referencePointers) {
+            const reference = jsonPointer.get(items, referencePointer)
+            // TODO Handle collections with forward references, where reference has the form {type: 'array', items: {storage: 'ref'}}.
+            if (reference && reference.$ref) {
+              const knownItem = _.get(knownItems, [relationship.entityTypeName, reference.$ref])
+              if (knownItem) {
+                // TODO Ensure that _.set works with all simple JSONPaths returned by JSONPath({resultType: 'path'}).
+                // Alternatively, use JSON pointers instead.
+                _.set(items, referencePointer, knownItem)
+                numReferencesFetched += 1
+              } else {
+                itemReferencesByEntityTypeName[relationship.entityTypeName] =
+                    itemReferencesByEntityTypeName[relationship.entityTypeName] || []
+                itemReferencesByEntityTypeName[relationship.entityTypeName].push({
+                  pointer: referencePointer,
+                  id: reference.$ref
+                })
+              }
             }
           }
         }
@@ -797,46 +829,48 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
         }
       } = {}
       for (const relationship of relationships.filter((r) => r.storage == 'inverse-ref')) {
-        if (pathsToExpand && !pathsToExpand.includes(relationship.path)) {
-          continue
-        }
-        if (!relationship.foreignKeyPath) {
-          // TODO Provide more details.
-          throw new PersistenceError('Missing foreign key path in relationship with storage inverse-ref')
-        }
-        inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] = inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] || {}
-        inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] =
-            inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || []
+        if (relationship.entityTypeName) {
+          if (pathsToExpand && !pathsToExpand.includes(relationship.path)) {
+            continue
+          }
+          if (!relationship.foreignKeyPath) {
+            // TODO Provide more details.
+            throw new PersistenceError('Missing foreign key path in relationship with storage inverse-ref')
+          }
+          inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] = inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName] || {}
+          inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] =
+              inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || []
 
-        const propertyPathFromRoot: PropertyPathStr = jsonPathToPropertyPath(relationship.path)
-        const parentPath: PropertyPathStr = shortenPath(propertyPathFromRoot, relationship.depthFromParent)
-        const propertyPath: PropertyPathStr = tailPath(propertyPathFromRoot, relationship.depthFromParent)// CHANGE
-        const parentPathInItemsArray: PropertyPathStr = ['$[*]', parentPath]
-            .filter(Boolean).filter((x) => x.length > 0).join('.')
-        const parentPointers = jsonPath({path: parentPathInItemsArray, json: items, resultType: 'pointer'}) as JsonPointerStr[]
+          const propertyPathFromRoot: PropertyPathStr = jsonPathToPropertyPath(relationship.path)
+          const parentPath: PropertyPathStr = shortenPath(propertyPathFromRoot, relationship.depthFromParent)
+          const propertyPath: PropertyPathStr = tailPath(propertyPathFromRoot, relationship.depthFromParent)// CHANGE
+          const parentPathInItemsArray: PropertyPathStr = ['$[*]', parentPath]
+              .filter(Boolean).filter((x) => x.length > 0).join('.')
+          const parentPointers = jsonPath({path: parentPathInItemsArray, json: items, resultType: 'pointer'}) as JsonPointerStr[]
 
-        const parentItems: Entity[] = []
-        for (const parentPointer of parentPointers) {
-            const parentItem = jsonPointer.get(items, parentPointer)
-            if (parentItem) {
-                parentItems.push(parentItem)
-            }
-        }
+          const parentItems: Entity[] = []
+          for (const parentPointer of parentPointers) {
+              const parentItem = jsonPointer.get(items, parentPointer)
+              if (parentItem) {
+                  parentItems.push(parentItem)
+              }
+          }
 
-        const parentItemsWithUnfilledRelationships = parentItems.filter(
-          (parentItem) => _.get(parentItem, propertyPath) === undefined
-        )
-        if (parentItems.length > 0) {
-          inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath].push(
-            ...parentItemsWithUnfilledRelationships.map((parentItem) => ({
-              item: parentItem,
-              path: relationship.path,
-              propertyPath: propertyPath,
-              toMany: relationship.toMany,
-              // CHANGE
-              parentId: parentItem._id
-            }))
+          const parentItemsWithUnfilledRelationships = parentItems.filter(
+            (parentItem) => _.get(parentItem, propertyPath) === undefined
           )
+          if (parentItems.length > 0) {
+            inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath].push(
+              ...parentItemsWithUnfilledRelationships.map((parentItem) => ({
+                item: parentItem,
+                path: relationship.path,
+                propertyPath: propertyPath,
+                toMany: relationship.toMany,
+                // CHANGE
+                parentId: parentItem._id
+              }))
+            )
+          }
         }
       }
 

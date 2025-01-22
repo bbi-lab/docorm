@@ -1,12 +1,12 @@
 {
   "name": "docorm",
-  "version": "0.0.10",
+  "version": "1.0.0-alpha.1",
   "description": "Persistence layer with ORM features for JSON documents",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "repository": {
@@ -45,6 +45,7 @@
     "json-pointer": "^0.6.2",
     "jsonpath-plus": "^7.2.0",
     "lodash": "^4.17.21",
+    "schema-fun": "^1.0.0-alpha.1",
     "uuid": "^9.0.0",
     "winston": "^3.8.2"
   },

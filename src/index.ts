@@ -1,4 +1,5 @@
 import _ from 'lodash'
+import {SchemaRegistry} from 'schema-fun'
 
 import {DEFAULT_DOC_ORM_CONFIG, DocOrmConfig, DocOrmConfigInput} from './config.js'
 import makeDao, {Dao} from './dao.js'
@@ -15,6 +16,9 @@ export function initDocOrm(config: DocOrmConfigInput) {
   docorm.config = _.merge({}, DEFAULT_DOC_ORM_CONFIG, config)
   if (config.logger) {
     setLogger(config.logger)
+  }
+  if (!config.schemaRegistry) {
+    config.schemaRegistry = new SchemaRegistry()
   }
   db.initDb()
 }
@@ -34,6 +38,4 @@ export function makeDocOrmMiddleware() {
 export {Dao, db, makeDao}
 export * from './entity-types.js'
 export * from './errors.js'
-export * from './paths.js'
 export * from './queries.js'
-export * from './schemas.js'
