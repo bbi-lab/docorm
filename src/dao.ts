@@ -17,7 +17,6 @@ import {
   type PropertyPathStr,
   type Relationship,
   type Schema,
-  SchemaRegistry,
   shortenPath,
   tailPath
 } from 'schema-fun'
@@ -620,11 +619,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       if (pathsToExpand && pathsToExpand.length == 0) {
         return
       }
-      // Strip leading '$.' from each path. pathsToExpand are expressed as simple JSONPaths, but we treat them as
-      // PropertyPathStrs.
-      if (pathsToExpand) {
-        pathsToExpand = pathsToExpand.map((path) => path.replace(/^\$\./, ''))
-      }
+
       const currentEntityType = entityTypeAtPathPrefix !== undefined ? entityTypeAtPathPrefix : entityType
 
       // Initialize a map of known items, if not already initialized. This will be used to avoid fetching the same item
@@ -642,7 +637,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       const daos: {[entityTypeName: string]: Dao} = {}
 
       // Get all related item definitions in the current item's entity type.
-      const maxRelationshipDepth = pathsToExpand ? Math.max(0, ...pathsToExpand.map((p) => pathDepth(p))) : maxDepth
+      const maxRelationshipDepth = pathsToExpand ? Math.max(0, ...pathsToExpand.map((p) => pathDepth(p.replace(/^\$./, '')))) : maxDepth
       const relationships = docorm.config.schemaRegistry?.findRelationshipsInSchema(
         currentEntityType.schema,
         ['ref', 'inverse-ref'],
@@ -730,7 +725,10 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       let numReferencesFetched = 0
       for (const relationship of relationships.filter((r) => r.storage == 'ref')) {
         if (relationship.entityTypeName) {
-          let pathInItemsArray = pathPrefix ? relationship.path.replace(/^\$/, pathPrefix.toString().replace(/^\$/, '$[*]')) : relationship.path.replace(/^\$/, '$[*]')
+          // relationship.path is a PropertyPathStr. Turn it into a JsonPathStr. This involves prepending "$.", but we
+          // want it to refer to the items array rather than a single item, so we prepend "$[*]." instead.
+          const relationshipPathPrefix = pathPrefix ? pathPrefix.toString().replace(/^\$/, '$[*]') : '$[*]'
+          let pathInItemsArray = `${relationshipPathPrefix}.${relationship.path}`
           if (relationship.toMany) {
             pathInItemsArray = `${pathInItemsArray}[*]`
           }
