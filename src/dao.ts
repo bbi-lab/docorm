@@ -774,7 +774,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           )
         }
         if (!referencedItemDao) {
-          referencedItemDao = await makeDao(referencedItemEntityType)
+          referencedItemDao = await makeDao(referencedItemEntityType, {draftBatchId})
           daos[referencedItemEntityTypeName] = referencedItemDao
         }
         const referencedItems = _.keyBy(
@@ -893,7 +893,7 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
               )
             }
             if (!referencedItemDao) {
-              referencedItemDao = await makeDao(referencedItemEntityType)
+              referencedItemDao = await makeDao(referencedItemEntityType, {draftBatchId})
               daos[referencedItemEntityTypeName] = referencedItemDao
             }
             const relatedItemsByParentId = _.groupBy(
