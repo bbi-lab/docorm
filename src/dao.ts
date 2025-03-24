@@ -808,7 +808,8 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       let {
         client,
         entityTypes,
-        daos
+        daos,
+        pathPrefix
       } = _.merge(options, DEFAULT_FETCH_RELATIONSHIPS_OPTIONS)
 
       let numReferencesFetched = 0
@@ -828,7 +829,15 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
       } = {}
       for (const relationship of relationships.filter((r) => r.storage == 'inverse-ref')) {
         if (relationship.entityTypeName) {
-          if (pathsToExpand && !pathsToExpand.includes(relationship.path)) {
+          const relationshipJsonPath = `${pathPrefix ? pathPrefix : '$.'}${relationship.path}`
+
+          // The relationship ends in [*] if it is a toMany relationship, so remove it to get the path we will use when
+          // adding related items to the document. Similarly, reduce the depth from parent by 1 for toMany
+          // relationships.
+          const relationshipJsonPathWithoutStar = relationshipJsonPath.replace(/\[\*\]$/, '')
+          const effectiveDepthFromParent = relationship.toMany ? relationship.depthFromParent - 1 : relationship.depthFromParent
+
+          if (pathsToExpand && !pathsToExpand.includes(relationshipJsonPath)) {
             continue
           }
           if (!relationship.foreignKeyPath) {
@@ -839,9 +848,9 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] =
               inverseReferencesByEntityTypeNameAndForeignKeyPath[relationship.entityTypeName][relationship.foreignKeyPath] || []
 
-          const propertyPathFromRoot: PropertyPathStr = jsonPathToPropertyPath(relationship.path)
-          const parentPath: PropertyPathStr = shortenPath(propertyPathFromRoot, relationship.depthFromParent)
-          const propertyPath: PropertyPathStr = tailPath(propertyPathFromRoot, relationship.depthFromParent)// CHANGE
+          const propertyPathFromRoot: PropertyPathStr = jsonPathToPropertyPath(relationshipJsonPathWithoutStar)
+          const parentPath: PropertyPathStr = shortenPath(propertyPathFromRoot, effectiveDepthFromParent)
+          const propertyPath: PropertyPathStr = tailPath(propertyPathFromRoot, effectiveDepthFromParent)
           const parentPathInItemsArray: PropertyPathStr = ['$[*]', parentPath]
               .filter(Boolean).filter((x) => x.length > 0).join('.')
           const parentPointers = jsonPath({path: parentPathInItemsArray, json: items, resultType: 'pointer'}) as JsonPointerStr[]

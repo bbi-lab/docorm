@@ -1,6 +1,6 @@
 {
   "name": "docorm",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "Persistence layer with ORM features for JSON documents",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -45,7 +45,7 @@
     "json-pointer": "^0.6.2",
     "jsonpath-plus": "^7.2.0",
     "lodash": "^4.17.21",
-    "schema-fun": "^1.0.0-alpha.2",
+    "schema-fun": "^1.0.0-alpha.4",
     "uuid": "^9.0.0",
     "winston": "^3.8.2"
   },
