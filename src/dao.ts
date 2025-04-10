@@ -729,9 +729,6 @@ const makeDao = async function(entityType: EntityType, options: DaoOptionsInput 
           // want it to refer to the items array rather than a single item, so we prepend "$[*]." instead.
           const relationshipPathPrefix = pathPrefix ? pathPrefix.toString().replace(/^\$/, '$[*]') : '$[*]'
           let pathInItemsArray = `${relationshipPathPrefix}.${relationship.path}`
-          if (relationship.toMany) {
-            pathInItemsArray = `${pathInItemsArray}[*]`
-          }
           let referencePointers: string[] = jsonPath({path: pathInItemsArray, json: items, resultType: 'pointer'}) as string[]
           if (pointersToExpand) {
             referencePointers = _.intersection(referencePointers, pointersToExpand)
